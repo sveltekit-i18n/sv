@@ -1,0 +1,81 @@
+{
+  "name": "@sveltekit-i18n/sv",
+  "version": "1.0.0-next.0",
+  "description": "Svelte CLI add-on that sets sveltekit-i18n up in a SvelteKit project: npx sv add @sveltekit-i18n",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "tsup --watch",
+    "build": "tsup",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "pretest": "npm run build && npm run typecheck",
+    "test": "vitest run",
+    "demo-create": "sv create demo --types ts --template minimal --no-add-ons --no-install",
+    "demo-add": "npm run build && sv add file:../ --cwd demo --no-git-check --no-install",
+    "prepublishOnly": "npm run build && npm run typecheck && vitest run",
+    "lint": "eslint --fix .",
+    "prepare": "simple-git-hooks"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+ssh://git@github.com/sveltekit-i18n/sv.git"
+  },
+  "keywords": [
+    "sv-add",
+    "svelte",
+    "sveltekit",
+    "i18n"
+  ],
+  "author": "Jarda Svoboda",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/sveltekit-i18n/lib/issues"
+  },
+  "homepage": "https://sveltekit-i18n.github.io",
+  "funding": "https://github.com/sponsors/sveltekit-i18n",
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "sv": "^1.1.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.63.0",
+    "@stylistic/eslint-plugin": "^5.10.0",
+    "@sveltejs/sv-utils": "^1.0.2",
+    "@sveltekit-i18n/base": "^3.3.2",
+    "@sveltekit-i18n/extension-html": "^3.0.2",
+    "@sveltekit-i18n/extension-stores": "^3.2.1",
+    "@sveltekit-i18n/extension-typed-access": "^3.0.1",
+    "@sveltekit-i18n/parser-i18next": "^3.0.5",
+    "@sveltekit-i18n/parser-icu": "^3.1.1",
+    "@sveltekit-i18n/parser-mf2": "^3.1.1",
+    "@sveltekit-i18n/typegen": "^3.1.1",
+    "@types/node": "^26.6.4",
+    "eslint": "^10.12.0",
+    "eslint-plugin-import-x": "^4.17.1",
+    "globals": "^17.13.0",
+    "simple-git-hooks": "^2.14.0",
+    "sv": "^1.1.1",
+    "sveltekit-i18n": "^3.4.1",
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.71.1",
+    "vitest": "^5.0.3"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "npm run lint"
+  }
+}
