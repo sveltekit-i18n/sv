@@ -5,9 +5,10 @@ import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  // The build output and the apps the suite and `npm run demo-create` scaffold,
-  // which are projects of their own; node_modules is ignored by default.
-  { ignores: ['**/dist/', '.test-output/', 'demo/'] },
+  // The build output, the apps the suite, `npm run demo-create` and the
+  // benchmark scaffold, which are projects of their own; node_modules is
+  // ignored by default.
+  { ignores: ['**/dist/', '.test-output/', 'demo/', 'bench/out/'] },
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {

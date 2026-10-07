@@ -1,0 +1,131 @@
+name: NPM Publish
+
+on:
+  workflow_dispatch:
+    inputs:
+        version:
+          description: 'Version'
+          required: true
+          default: 'next'
+          type: choice
+          options:
+            - next
+            - patch
+            - minor
+            - major
+
+jobs:
+  tests:
+    uses: ./.github/workflows/tests.yml
+
+  publish-npm:
+    needs: tests
+    runs-on: ubuntu-latest
+    # The benchmark of the release runs in here.
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      # The release commit lands on a protected branch; the app is on the
+      # bypass allowlist, GITHUB_TOKEN is not.
+      - name: Mint app token
+        id: app-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ secrets.AUTOMATION_APP_CLIENT_ID }}
+          private-key: ${{ secrets.AUTOMATION_APP_PRIVATE_KEY }}
+
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org/
+
+      # Trusted publishing needs npm 11.5.1 or newer; the npm bundled with a
+      # Node release is not guaranteed to be one.
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Update version
+        id: bump
+        run: |
+          git config --local user.name '${{ steps.app-token.outputs.app-slug }}[bot]'
+          git config --local user.email '${{ steps.app-token.outputs.app-slug }}[bot]@users.noreply.github.com'
+          # The bump picks the dist-tag: a prerelease can only reach `next`,
+          # and only a released version can move `latest`.
+          if [ '${{ inputs.version }}' = next ]; then
+            # npm never takes a version it once published, one unpublished since
+            # included, so the prerelease counter skips every such version. Only
+            # a package npm does not know has none; any other failure stops here.
+            # npm 12 wraps what it finds in an array.
+            USED="$(npm view "$(node -p 'require("./package.json").name')" time --json 2>/dev/null || true)"
+            USED="$(printf '%s' "$USED" | node -e 'const raw = JSON.parse(require("fs").readFileSync(0, "utf8")); const out = Array.isArray(raw) ? raw[0] ?? {} : raw; if (out.error && out.error.code !== "E404") process.exit(1); console.log(JSON.stringify(out.error ? {} : out))')"
+            VERSION="$(npm version prerelease --preid=next --no-git-tag-version | tail -n 1)"
+            VERSION="${VERSION#v}"
+            git checkout -- package.json package-lock.json
+            while printf '%s' "$USED" | node -e 'process.exit(process.argv[1] in JSON.parse(require("fs").readFileSync(0, "utf8")) ? 0 : 1)' "$VERSION"; do
+              VERSION="${VERSION%.*}.$(( ${VERSION##*.} + 1 ))"
+            done
+            TAG="$(npm version "$VERSION" --no-git-tag-version | tail -n 1)"
+            DIST_TAG=next
+          else
+            TAG="$(npm version '${{ inputs.version }}' --no-git-tag-version | tail -n 1)"
+            DIST_TAG=latest
+          fi
+          # The release commit carries the benchmark of the version it
+          # releases; commit and tag are written as `npm version` writes them.
+          npm run bench -- --write
+          git add package.json package-lock.json BENCH.md
+          git commit -m "${TAG#v}"
+          git tag -a "$TAG" -m "${TAG#v}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "dist-tag=$DIST_TAG" >> "$GITHUB_OUTPUT"
+
+      # npm resolves a README's relative links against the default branch, so
+      # the page of a released version would show docs that moved on since.
+      # The links into this package name the release tag instead: published,
+      # never committed, and checked against the tag before anything is pushed.
+      - name: Pin README links to the release
+        env:
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: node "$GITHUB_WORKSPACE/.github/scripts/pin-readme-links.mjs" "$TAG"
+
+      # The bundle inlines `package.json`, so it is built from the bumped one,
+      # before anything is pushed.
+      - name: Build
+        run: npm run build
+
+      # Atomic: the branch and the tag land together or not at all, and the
+      # publish below never runs on a half-pushed release.
+      - name: Push release commit and tag
+        run: git push --atomic origin HEAD:${{ github.ref_name }} '${{ steps.bump.outputs.tag }}'
+
+      # No token: the registry authenticates the workflow itself over OIDC and
+      # attaches provenance in the same step. `prepublishOnly` would run the
+      # suite again, which needs pnpm and Chromium: the tests job ran it on
+      # this tree, and the release commit changes only the version and
+      # BENCH.md.
+      - name: Publish package
+        run: npm publish --ignore-scripts --tag ${{ steps.bump.outputs.dist-tag }}
+
+      # Last: publishing is irreversible, so a release must never announce a
+      # version that failed to reach the registry.
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          case "$TAG" in
+            *-*) PRERELEASE=--prerelease ;;
+            *)   PRERELEASE= ;;
+          esac
+          gh release create "$TAG" --title "$TAG" --generate-notes $PRERELEASE
