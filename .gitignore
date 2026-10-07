@@ -1,0 +1,19 @@
+node_modules/
+dist/
+
+# The projects the suite generates, and the one `npm run demo-create`
+# scaffolds to try the add-on by hand.
+.test-output/
+demo/
+
+*.log
+.env
+.vscode
+.idea/
+.DS_Store
+Thumbs.db
+
+# Claude Code: user- and session-local only. Shared settings, skills, agents
+# and commands under .claude/ stay tracked.
+.claude/settings.local.json
+.claude/worktrees/

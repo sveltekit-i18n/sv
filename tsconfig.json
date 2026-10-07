@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "module": "ESNext",
+    // An sv transform aborts by returning `false` and goes on by returning
+    // nothing, which this check would reject.
+    "noImplicitReturns": false,
+    "noUnusedLocals": true,
+    "sourceMap": false,
+    "strict": true,
+    // Declaration files of build tooling (tsup, vitest, sv) target newer lib
+    // levels than this package; the subject of this gate is our code.
+    "skipLibCheck": true,
+    "target": "es2022",
+    "moduleResolution": "bundler",
+    "noEmit": true,
+    "resolveJsonModule": true,
+    "allowSyntheticDefaultImports": true,
+    "types": ["node"]
+  },
+  "include": [
+    "./src",
+    "./tests",
+    "./*.js",
+    "./*.ts"
+  ],
+  // The projects the suite generates are apps of their own.
+  "exclude": [
+    "./.test-output"
+  ]
+}
