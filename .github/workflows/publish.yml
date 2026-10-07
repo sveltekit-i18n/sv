@@ -99,8 +99,8 @@ jobs:
           TAG: ${{ steps.bump.outputs.tag }}
         run: node "$GITHUB_WORKSPACE/.github/scripts/pin-readme-links.mjs" "$TAG"
 
-      # The bundle inlines `package.json`, so it is built from the bumped one,
-      # before anything is pushed.
+      # `--ignore-scripts` below skips `prepublishOnly`, which builds; a build
+      # that fails stops the release before anything is pushed.
       - name: Build
         run: npm run build
 
