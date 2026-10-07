@@ -18,6 +18,17 @@ const add = (cwd: string, options: string): { status: number | null; output: str
   return { status, output: `${stdout}${stderr}` };
 };
 
+test('the bundle carries no field of package.json but its devDependencies', () => {
+  const bundle = fs.readFileSync(path.join(ROOT, 'dist/index.js'), 'utf8');
+  const { description, scripts, repository } = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as { description: string; scripts: Record<string, string>; repository: { url: string } };
+
+  for (const [field, value] of Object.entries({ description, scripts: scripts.prepublishOnly, repository: repository.url })) {
+    expect(value, field).toBeTypeOf('string');
+    // `includes`, as a failing `toContain` prints the whole bundle.
+    expect(bundle.includes(value), field).toBe(false);
+  }
+});
+
 test('the command line runs the built add-on with text options, and a second run changes nothing', () => {
   expect(fs.existsSync(path.join(ROOT, 'dist/index.js'))).toBe(true);
   const cwd = fromTemplate(path.join(inject('testDir'), 'cli', 'kit-js'), 'kit-js');
@@ -35,7 +46,9 @@ test('the command line runs the built add-on with text options, and a second run
     '@sveltekit-i18n/extension-typed-access',
     '@sveltekit-i18n/parser-icu',
   ]);
-  expect(pkg.devDependencies['@sveltekit-i18n/typegen']).toBeDefined();
+  const { devDependencies } = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8')) as { devDependencies: Record<string, string> };
+  for (const [name, range] of Object.entries(pkg.dependencies)) expect(range, name).toBe(devDependencies[name]);
+  expect(pkg.devDependencies['@sveltekit-i18n/typegen']).toBe(devDependencies['@sveltekit-i18n/typegen']);
 
   const i18n = read(cwd, 'src/lib/i18n.js');
   expect(i18n).toContain("initLocale: 'en',");

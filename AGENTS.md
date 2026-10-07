@@ -170,12 +170,12 @@ flagged for review. `publish.yml` writes `BENCH.md` into the release commit.
   it stays out of the row; `sv` is the one the side's bundle resolves, and
   the report names its version and `@sveltejs/sv-utils`'s on each side.
 - **Each side is its own build on its own install.** The bundle inlines
-  `@sveltejs/sv-utils` and this package's `package.json`, so a bump of either
-  is a change of what ships, and is measured. The projects are made once per
-  run with this tree's `sv create`, so both sides run on the same bytes, and
-  each run copies one outside the timed span and checks every file the add-on
-  writes, so a side that leaves one alone, as a transform that fails soft
-  does, cannot read as fast.
+  `@sveltejs/sv-utils` and this package's devDependencies, so a bump of
+  either is a change of what ships, and is measured. The projects are made
+  once per run with this tree's `sv create`, so both sides run on the same
+  bytes, and each run copies one outside the timed span and checks every file
+  the add-on writes, so a side that leaves one alone, as a transform that
+  fails soft does, cannot read as fast.
 - **A project process ends by a timeout**, and the job carries a
   `timeout-minutes`.
 
@@ -191,8 +191,8 @@ The first version, `1.0.0-next.0`, is published by hand
 (`npm publish --tag next`), as npm configures trusted publishing only for a
 package that exists, and its commit is tagged `1.0.0-next.0`, which the notes
 of the next release start from; every later release runs `publish.yml`. It
-builds after the bump, as the bundle inlines `package.json`, and publishes
-with `--ignore-scripts`: `prepublishOnly` runs the suite, which needs pnpm and
+builds before it pushes the release commit, and publishes with
+`--ignore-scripts`: `prepublishOnly` runs the suite, which needs pnpm and
 Chromium, and the `tests` job ran it on the tree being released.
 
 ## Comments

@@ -57,7 +57,7 @@ const where = (project: Project, sample: number) => (project === 'sizes' ? '' : 
 
 /**
  * Builds a side with its own `npm run build`, on its own install: the bundle
- * inlines `@sveltejs/sv-utils` and this package's `package.json`, so a bump
+ * inlines `@sveltejs/sv-utils` and this package's devDependencies, so a bump
  * of either is a change of what ships, and is measured. Returns whether it
  * built; a side that did not fails every project.
  */

@@ -1,13 +1,13 @@
-import pkg from '../package.json' with { type: 'json' };
+import { devDependencies } from '../package.json';
 
-type Installed = keyof typeof pkg.devDependencies & (`@sveltekit-i18n/${string}` | 'sveltekit-i18n');
+type Installed = keyof typeof devDependencies & (`@sveltekit-i18n/${string}` | 'sveltekit-i18n');
 
 /**
  * The range a project gets: the add-on's own devDependency on the package,
  * the version its suite ran against. The family's release plan moves those to
  * the latest release before each publish.
  */
-export const range = (name: Installed): string => pkg.devDependencies[name];
+export const range = (name: Installed): string => devDependencies[name];
 
 export type FormatId = 'curly' | 'icu' | 'mf2' | 'i18next';
 
