@@ -43,8 +43,9 @@ Issues for this repo live in the `lib` tracker.
 |---------|---------|
 | `npm run build` | tsup → `dist/index.js` |
 | `npm test` | the whole suite (runs `build` and `typecheck` first); needs pnpm and Playwright's Chromium (`CHROMIUM_PATH` names another build) |
-| `npm run typecheck` | `tsc --noEmit` |
+| `npm run typecheck` | `tsc --noEmit`, over the package and over `bench` |
 | `npm run lint` | `eslint --fix .` (also the pre-commit hook) |
+| `npm run bench` | the benchmark of this tree; `-- --compare <dir>` measures it against the package checked out and installed at `<dir>` |
 | `npm run demo-create` / `npm run demo-add` | scaffold `demo/` with `sv create`, then run the built add-on on it, to try it by hand |
 
 ## Repository map
@@ -65,6 +66,10 @@ Issues for this repo live in the `lib` tracker.
 | `tests/addon/` | the matrix: each option set on `kit-js` and `kit-ts`, installed, built, checked and served |
 | `tests/merge/` | a project with its own `handle`, loads and `params`, and a second run |
 | `tests/setup/` | the global setup, `setupTest` and the helpers the suites share |
+| `tests/bench/` | how the benchmark reads a row against the base (`bench/compare.ts`) |
+| `bench/` | the benchmark: `run.ts` builds each side and runs it, one process per project and sample, and `compare.ts` reads each row against the base; `sizes.ts`, `import.ts` and `add.ts` measure its rows, on the projects `cases.ts` describes |
+| `BENCH.md` | the benchmark of the last release, written into its release commit by `publish.yml` |
+| `.github/scripts/pin-readme-links.mjs` | pins the README's links into this repository to the release tag, for the npm page |
 
 ## Architecture you must respect
 
@@ -139,6 +144,41 @@ Issues for this repo live in the `lib` tracker.
   `tests/unit/transforms.test.ts`, which runs the transform again on it and
   expects no change.
 
+## Benchmark
+
+`npm run bench` measures this tree, and `npm run bench -- --compare <dir>`
+measures it against the package checked out and installed at `<dir>`, as
+`bench.yml` does on every pull request that touches what it measures, against
+its base. It reads rows as base's benchmark does (base's §4): a project of the
+branch that fails fails the job; a row of the base the branch lacks or a
+project of the base that failed fails it unless the pull request carries the
+`bench-accepted` label (`bench-label.yml` re-runs the job when the label
+changes); and a size that grew and a time beyond its spread by 5% or more are
+flagged for review. `publish.yml` writes `BENCH.md` into the release commit.
+
+- **It measures what a user waits on: one `npx sv add` per project.** The
+  rows are the bytes of the bundle and of the tarball `sv` downloads, the
+  import of the bundle with `sv` loaded already, and `run()` on four projects:
+  TypeScript with the default options, JavaScript with every option, a
+  project with its own hooks, layout loads and params under `routing: prefix`,
+  and the same with about 2,000 lines in each of those scripts, where a
+  transform that grows faster than the file stands out. There are no counts
+  and no heap: nothing here repeats, and no process outlives its run.
+- **A time is a first call, in a process of its own.** `sv` imports and runs
+  the add-on once per process, so a warmed call times what no user meets.
+  `run()` is timed inside `add()`, which wraps it, so `sv`'s own work around
+  it stays out of the row; `sv` is the one the side's bundle resolves, and
+  the report names its version and `@sveltejs/sv-utils`'s on each side.
+- **Each side is its own build on its own install.** The bundle inlines
+  `@sveltejs/sv-utils` and this package's `package.json`, so a bump of either
+  is a change of what ships, and is measured. The projects are made once per
+  run with this tree's `sv create`, so both sides run on the same bytes, and
+  each run copies one outside the timed span and checks every file the add-on
+  writes, so a side that leaves one alone, as a transform that fails soft
+  does, cannot read as fast.
+- **A project process ends by a timeout**, and the job carries a
+  `timeout-minutes`.
+
 ## Releases
 
 A release is planned with the rest of the family (base's §4, *Releases*),
@@ -147,10 +187,13 @@ of one of those is a release of this package, whose devDependencies move to
 it first. `README.md` is the npm page, so it describes the version being
 published, and each of its links resolves.
 
-The benchmark and `publish.yml` come in a pull request of their own, before
-the first publish. That first version, `1.0.0-next.0`, is published by hand
+The first version, `1.0.0-next.0`, is published by hand
 (`npm publish --tag next`), as npm configures trusted publishing only for a
-package that exists; every later release runs `publish.yml`.
+package that exists, and its commit is tagged `1.0.0-next.0`, which the notes
+of the next release start from; every later release runs `publish.yml`. It
+builds after the bump, as the bundle inlines `package.json`, and publishes
+with `--ignore-scripts`: `prepublishOnly` runs the suite, which needs pnpm and
+Chromium, and the `tests` job ran it on the tree being released.
 
 ## Comments
 

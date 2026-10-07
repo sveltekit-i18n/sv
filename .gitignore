@@ -1,10 +1,11 @@
 node_modules/
 dist/
 
-# The projects the suite generates, and the one `npm run demo-create`
-# scaffolds to try the add-on by hand.
+# The projects the suite generates, the one `npm run demo-create`
+# scaffolds to try the add-on by hand, and what the benchmark builds and runs.
 .test-output/
 demo/
+/bench/out/
 
 *.log
 .env
