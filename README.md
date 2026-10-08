@@ -6,11 +6,8 @@ project: the dependencies, the translations, the `/kit` wiring and, if you want
 them, typed keys and a demo page.
 
 ```sh
-npx sv add @sveltekit-i18n/sv@next
+npx sv add @sveltekit-i18n
 ```
-
-Only the prerelease is published so far, so name the `next` tag as above.
-From `1.0.0` on, `npx sv add @sveltekit-i18n` runs the latest version.
 
 It needs SvelteKit 3. It sets sveltekit-i18n up for the first time: in a
 project that already depends on `sveltekit-i18n` or `@sveltekit-i18n/base`,
@@ -33,7 +30,7 @@ see [Upgrading from v2](https://github.com/sveltekit-i18n/lib/blob/master/docs/T
 Every option can be given on the command line, which then asks nothing:
 
 ```sh
-npx sv add @sveltekit-i18n/sv@next="locales:en,cs+format:icu+routing:prefix+typegen:yes+extensions:typed-access,html+demo:yes"
+npx sv add @sveltekit-i18n="locales:en,cs+format:icu+routing:prefix+typegen:yes+extensions:typed-access,html+demo:yes"
 ```
 
 ## What it changes
