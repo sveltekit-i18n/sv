@@ -27,7 +27,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+ssh://git@github.com/sveltekit-i18n/sv.git"
+    "url": "git+https://github.com/sveltekit-i18n/sv.git"
   },
   "keywords": [
     "sv-add",
