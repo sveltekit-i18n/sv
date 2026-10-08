@@ -1,6 +1,6 @@
 {
   "name": "@sveltekit-i18n/sv",
-  "version": "1.0.0-next.0",
+  "version": "1.0.0",
   "description": "Svelte CLI add-on that sets sveltekit-i18n up in a SvelteKit project: npx sv add @sveltekit-i18n",
   "type": "module",
   "exports": {
