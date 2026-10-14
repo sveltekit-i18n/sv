@@ -48,6 +48,7 @@ const { test, testCases } = setupTest({ [id]: addon }, {
   filter: ({ variant }) => variant.startsWith('kit'),
   browser: true,
   preAdd: ({ addonTestCase, cwd }) => {
+    fs.cpSync(path.resolve(import.meta.dirname, '../../vendor'), path.join(cwd, 'vendor'), { recursive: true });
     const { base } = CASES[addonTestCase.kind.type];
     if (!base) return;
     const file = path.join(cwd, 'vite.config.ts');
