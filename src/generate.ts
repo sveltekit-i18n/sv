@@ -8,14 +8,18 @@ const quote = (value: string): string => `'${value.replace(/\\/g, '\\\\').replac
 
 const list = (values: string[]): string => `[${values.map(quote).join(', ')}]`;
 
-/** The parser's options: `extension-html` needs ICU to read tags as text. */
-const parserOptions = ({ format, extensions }: Settings): string => (
-  format.id === 'icu' && extensions.some(({ id }) => id === 'html') ? '{ onReport, ignoreTag: true }' : '{ onReport }'
-);
+/** `html` or `markdown`, which renders a message with `T`: an instance takes one of them. */
+const rich = ({ extensions }: Settings) => extensions.find(({ demo }) => demo === 'component');
+
+/** Whether ICU reads `<…>` as text: `html`'s tags, and `markdown`'s autolinks and raw HTML, are not ICU's. */
+const ignoreTag = (settings: Settings): boolean => settings.format.id === 'icu' && rich(settings) !== undefined;
+
+/** The parser's options. */
+const parserOptions = (settings: Settings): string => (ignoreTag(settings) ? '{ onReport, ignoreTag: true }' : '{ onReport }');
 
 /** What typegen's `extractParams` gets: the parser's package, and the parser's options where they change what a message names. */
 export const extractParams = (settings: Settings): string => {
-  const options = settings.format.id === 'icu' && settings.extensions.some(({ id }) => id === 'html') ? ', options: { ignoreTag: true }' : '';
+  const options = ignoreTag(settings) ? ', options: { ignoreTag: true }' : '';
   return `{ from: ${quote(settings.format.from)}${options} }`;
 };
 
@@ -153,12 +157,11 @@ export const params = defineParams({
 /** The demo's messages, in English: marked for translating in a locale of any other language. */
 export const messages = (settings: Settings, locale: string): Record<string, string> => {
   const mark = locale.split('-')[0] === 'en' ? '' : `[${locale}] `;
+  const link = rich(settings)?.link;
   return {
     greeting: `${mark}${settings.format.greeting('Hello')}`,
     'nav.home': `${mark}Home`,
-    ...(settings.extensions.some(({ id }) => id === 'html')
-      ? { docs: `${mark}Read <a href="https://sveltekit-i18n.github.io">the documentation</a>.` }
-      : {}),
+    ...(link ? { docs: `${mark}Read ${link('the documentation', 'https://sveltekit-i18n.github.io')}.` } : {}),
   };
 };
 
@@ -169,7 +172,7 @@ export const demoPage = (settings: Settings, language: Language): string => {
   const ts = language === 'ts';
   const { routing, extensions } = settings;
   const stores = extensions.some(({ demo }) => demo === 'stores');
-  const html = extensions.some(({ demo }) => demo === 'component');
+  const docs = rich(settings) !== undefined;
 
   const imports = [
     ...(routing === 'prefix' ? ["import { resolve } from '$app/paths';", "import { page } from '$app/state';"] : ["import { resolve } from '$app/paths';"]),
@@ -181,7 +184,7 @@ export const demoPage = (settings: Settings, language: Language): string => {
 
   const t = stores ? '$t' : 'i18n.t';
   // Only what the page reads: a linter rejects an unused binding.
-  const members = ['t', ...(routing === 'prefix' ? [] : ['locale', 'locales']), ...(html ? ['instance'] : [])];
+  const members = ['t', ...(routing === 'prefix' ? [] : ['locale', 'locales']), ...(docs ? ['instance'] : [])];
   const read = stores ? `const { ${members.join(', ')} } = get();` : 'const i18n = get();';
 
   let script: string;
@@ -232,7 +235,7 @@ ${tab(script)}
 </script>
 
 <h1>{${t}('common.greeting', { name: 'World' })}</h1>
-${html ? `\n<p><${component} key="common.docs" /></p>\n` : ''}
+${docs ? `\n<p><${component} key="common.docs" /></p>\n` : ''}
 <nav>
 ${tab(switcher)}
 </nav>
