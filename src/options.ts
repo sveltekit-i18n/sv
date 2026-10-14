@@ -43,7 +43,7 @@ export const options = defineAddonOptions()
     question: 'Which extensions?',
     type: 'multiselect',
     default: [] as ExtensionId[],
-    options: EXTENSIONS.map(({ id, label }) => ({ value: id, label })),
+    options: EXTENSIONS.map(({ id, label, hint }) => ({ value: id, label, hint })),
     required: false,
   })
   .add('demo', {
@@ -89,6 +89,7 @@ export const readOptions = (input: Record<string, unknown>): Settings | string =
   if (unknown.length) {
     return `Unknown extension ${unknown.map(String).join(', ')}: use ${EXTENSIONS.map(({ id }) => id).join(', ')}, or none.`;
   }
+  if (ids.includes('html') && ids.includes('markdown')) return '`html` and `markdown` each add `T`, so an instance takes one of them: drop either.';
 
   return {
     locales,

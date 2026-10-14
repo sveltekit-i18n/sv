@@ -65,7 +65,7 @@ export const FORMATS: Format[] = [
   },
 ];
 
-export type ExtensionId = 'typed-access' | 'html' | 'stores';
+export type ExtensionId = 'typed-access' | 'html' | 'markdown' | 'stores';
 
 export type Extension = {
   id: ExtensionId;
@@ -73,15 +73,20 @@ export type Extension = {
   package: Installed;
   /** The local name of the default import. */
   importName: string;
-  /** What goes into `extensions: [ … ]`: `html` is a factory. */
+  /** What goes into `extensions: [ … ]`: `html` and `markdown` are factories. */
   expression: string;
   /** How the demo page reads the instance once this extension is in the pipe. */
   demo: 'instance' | 'stores' | 'component';
+  /** A link in the markup the extension renders, for the demo's message. */
+  link?: (text: string, href: string) => string;
+  /** What the prompt shows beside the label. */
+  hint?: string;
 };
 
 /**
  * In the order the pipe needs them: `stores` last, as its output is no
- * instance, and `html` after `typed-access`, so it augments that output.
+ * instance, and `html` or `markdown` after `typed-access`, so it augments that
+ * output. Each of those two adds `T`, so an instance takes one of them.
  */
 export const EXTENSIONS: Extension[] = [
   {
@@ -99,6 +104,18 @@ export const EXTENSIONS: Extension[] = [
     importName: 'html',
     expression: 'html({ onReport })',
     demo: 'component',
+    link: (text, href) => `<a href="${href}">${text}</a>`,
+    hint: 'not with markdown',
+  },
+  {
+    id: 'markdown',
+    label: 'markdown: Markdown in messages, rendered by <T>',
+    package: '@sveltekit-i18n/extension-markdown',
+    importName: 'markdown',
+    expression: 'markdown({ onReport })',
+    demo: 'component',
+    link: (text, href) => `[${text}](${href})`,
+    hint: 'not with html',
   },
   {
     id: 'stores',

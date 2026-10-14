@@ -19,7 +19,7 @@ type Case = {
   format?: 'curly' | 'icu' | 'mf2' | 'i18next';
   routing?: 'cookie' | 'prefix' | 'custom';
   typegen?: boolean;
-  extensions?: ('typed-access' | 'html' | 'stores')[];
+  extensions?: ('typed-access' | 'html' | 'markdown' | 'stores')[];
   /** `kit.paths.base`, set before the add-on runs. */
   base?: string;
 };
@@ -34,6 +34,7 @@ const CASES: Record<string, Case> = {
   stores: { locales: ['en', 'cs'], typegen: false, extensions: ['stores'] },
   extensions: { locales: ['en', 'cs'], extensions: ['typed-access', 'html', 'stores'] },
   icu: { locales: ['en', 'cs'], format: 'icu', extensions: ['html'] },
+  markdown: { locales: ['en', 'cs'], format: 'icu', extensions: ['markdown', 'stores'] },
   mf2: { locales: ['en', 'cs'], format: 'mf2' },
   i18next: { locales: ['en', 'cs'], format: 'i18next' },
   rtl: { locales: ['en', 'pt-BR', 'ar'] },
@@ -65,26 +66,37 @@ const visible = (text: string | null): string => (text ?? '').replace(/[\u2066-\
 
 const heading = async (page: Page): Promise<string> => visible(await page.locator('h1').textContent());
 
-/** What the parser reports for the probe's message, and what `html` reports for its tag. */
-const REPORTS = { parser: 'modifier this parser does not know', html: 'Tag <blink>' };
+/** What the parser reports for the probe's message, and what `html` and `markdown` report for theirs. */
+const REPORTS = { parser: 'modifier this parser does not know', html: 'Tag <blink>', markdown: 'The image in the message' };
+
+/**
+ * A message `html` or `markdown` reports, as neither maps the node by
+ * default; `markdown`'s also holds an autolink, which ICU reads as a tag, and
+ * fails the message over, unless it ignores tags.
+ */
+const RICH = { html: 'Read <blink>this</blink>.', markdown: 'Read <https://sveltekit-i18n.github.io> and ![this](/x.png).' };
+
+const richOf = (extensions: NonNullable<Case['extensions']>) => extensions.find((id) => id === 'html' || id === 'markdown');
 
 /** The mark a replaced logger puts on what it writes. */
 const MARK = '[app logger]';
 
 /**
- * A page of its own that renders a message the parser reports, and with
- * `html` one holding a tag no layer maps. With `replaceLogger`, the logger of
- * `#lib/i18n` marks what it writes, so the reports are seen to go through it.
+ * A page of its own that renders a message the Curly Message Format reports,
+ * and with `html` or `markdown` one from `RICH`. With `replaceLogger`, the
+ * logger of `#lib/i18n` marks what it writes, so the reports are seen to go
+ * through it.
  */
-const addReportProbe = (cwd: string, ts: boolean, { extensions = [] }: Case, replaceLogger: boolean): void => {
+const addReportProbe = (cwd: string, ts: boolean, { format = 'curly', extensions = [] }: Case, replaceLogger: boolean): void => {
   const stores = extensions.includes('stores');
-  const html = extensions.includes('html');
+  const curly = format === 'curly';
+  const rich = richOf(extensions);
 
   const messages = 'src/lib/translations/en/common.json';
   write(cwd, messages, JSON.stringify({
     ...JSON.parse(read(cwd, messages)) as object,
-    report: '{{v:shout}}',
-    ...(html ? { tagged: 'Read <blink>this</blink>.' } : {}),
+    ...(curly ? { report: '{{v:shout}}' } : {}),
+    ...(rich ? { tagged: RICH[rich] } : {}),
   }, null, '\t'));
 
   if (replaceLogger) {
@@ -95,7 +107,7 @@ const addReportProbe = (cwd: string, ts: boolean, { extensions = [] }: Case, rep
     write(cwd, i18n, read(cwd, i18n).replace('const logger = console;', replaced));
   }
 
-  const read_ = stores ? `const { t${html ? ', instance' : ''} } = get();` : 'const i18n = get();';
+  const read_ = stores ? `const { ${curly ? 't' : ''}${curly && rich ? ', ' : ''}${rich ? 'instance' : ''} } = get();` : 'const i18n = get();';
   const t = stores ? '$t' : 'i18n.t';
   const T = stores ? 'instance.T' : 'i18n.T';
   write(cwd, 'src/routes/report/+page.svelte', `<script${ts ? ' lang="ts"' : ''}>
@@ -104,8 +116,7 @@ const addReportProbe = (cwd: string, ts: boolean, { extensions = [] }: Case, rep
 \t${read_}
 </script>
 
-<p>{${t}('common.report', { v: 'x' })}</p>
-${html ? `<p><${T} key="common.tagged" /></p>\n` : ''}`);
+${curly ? `<p>{${t}('common.report', { v: 'x' })}</p>\n` : ''}${rich ? `<p><${T} key="common.tagged" /></p>\n` : ''}`);
 };
 
 /** A page typegen's schema must reject, which svelte-check then fails unless the key is refused. */
@@ -142,9 +153,10 @@ test.concurrent.for(testCases)('sveltekit-i18n $kind.type $variant', async (test
   expect(read(cwd, 'src/app.html')).toMatch(/<html[^>]* lang="%lang%" dir="%dir%"/);
   if (typegen) expect(read(cwd, '.gitignore')).toContain('src/i18n-schema.d.ts');
 
-  // The defaults report through `console`; the extensions, `html` among them, through a replaced logger.
-  const probed = type === 'defaults' || type === 'extensions';
-  if (probed) addReportProbe(cwd, ts, settings, type === 'extensions');
+  // The defaults report through `console`; the extensions, `html` or `markdown` among them, through a replaced logger.
+  const probed = type === 'defaults' || type === 'extensions' || type === 'markdown';
+  const marked = type !== 'defaults';
+  if (probed) addReportProbe(cwd, ts, settings, marked);
   if (type === 'defaults' && ts) addTypeProbe(cwd);
 
   const warnings: string[] = [];
@@ -169,18 +181,23 @@ test.concurrent.for(testCases)('sveltekit-i18n $kind.type $variant', async (test
   expect(await heading(page)).toBe(greeting(first));
   await expectPage(page.locator('html')).toHaveAttribute('lang', first);
 
-  if (extensions.includes('html')) {
+  const rich = richOf(extensions);
+  if (rich) {
     await expectPage(page.locator('p a[href="https://sveltekit-i18n.github.io"]')).toHaveText('the documentation');
   }
 
   if (probed) {
     expect(warnings).toEqual([]);
     await page.goto(at('/report'));
-    const expected = [REPORTS.parser, ...(extensions.includes('html') ? [REPORTS.html] : [])];
-    const marked = type === 'extensions';
+    if (rich === 'markdown') {
+      await expectPage(page.locator('p a[href="https://sveltekit-i18n.github.io"]')).toHaveText('https://sveltekit-i18n.github.io');
+    }
+    const expected = [...(format === 'curly' ? [REPORTS.parser] : []), ...(rich ? [REPORTS[rich]] : [])];
     for (const report of expected) {
       await expectPage.poll(() => warnings.some((text) => text.includes(report) && text.startsWith(MARK) === marked)).toBe(true);
     }
+    // Nothing else: a message the parser fails reports that too.
+    expect(warnings.filter((text) => !expected.some((report) => text.includes(report)))).toEqual([]);
     if (type === 'defaults') return;
     await page.goto(at('/demo/sveltekit-i18n'));
   }

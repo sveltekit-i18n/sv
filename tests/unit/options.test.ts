@@ -27,12 +27,15 @@ describe('options', () => {
     expect(readOptions({ ...defaults, typegen: 'yes' })).toContain('`typegen`');
     expect(readOptions({ ...defaults, demo: undefined })).toContain('`demo`');
     expect(readOptions({ ...defaults, extensions: 'stores' })).toContain('takes a list');
-    expect(readOptions({ ...defaults, extensions: ['markdown'] })).toContain('Unknown extension markdown');
+    expect(readOptions({ ...defaults, extensions: ['router'] })).toContain('Unknown extension router');
+    expect(readOptions({ ...defaults, extensions: ['html', 'markdown'] })).toContain('an instance takes one of them');
   });
 
   test('extensions land in the order the pipe needs, whatever order they were named in', () => {
     const settings = readOptions({ ...defaults, extensions: ['stores', 'html', 'typed-access'] });
     expect(typeof settings !== 'string' && settings.extensions.map(({ id }) => id)).toEqual(['typed-access', 'html', 'stores']);
+    const markdown = readOptions({ ...defaults, extensions: ['stores', 'markdown', 'typed-access'] });
+    expect(typeof markdown !== 'string' && markdown.extensions.map(({ id }) => id)).toEqual(['typed-access', 'markdown', 'stores']);
   });
 });
 
