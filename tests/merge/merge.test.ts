@@ -3,7 +3,7 @@ import { add } from 'sv';
 
 import addon from '../../src/index.js';
 import type { ExtensionId } from '../../src/packages.js';
-import { read, script, serve, tree, write } from '../setup/project.js';
+import { read, script, serve, tree, vendored, write } from '../setup/project.js';
 import { setupTest } from '../setup/suite.js';
 
 const id = addon.id;
@@ -13,9 +13,10 @@ const expectPage = playwrightExpect.configure({ timeout: 15_000 });
 
 /**
  * A project with its own `handle`, both layout loads, a page that reads what
- * they return and a `params` file: the add-on merges into each.
+ * they return, a `params` file and universal hooks: the add-on merges into
+ * each. With translated pathnames, the page is in no `[[lang]]` tree.
  */
-const existing = (cwd: string, ts: boolean): void => {
+const existing = (cwd: string, ts: boolean, translated: boolean): void => {
   const ext = ts ? 'ts' : 'js';
   write(cwd, `src/hooks.server.${ext}`, `${ts ? "import type { Handle } from '@sveltejs/kit/hooks';\n\n" : ''}${ts ? 'export const handle: Handle' : "/** @type {import('@sveltejs/kit/hooks').Handle} */\nexport const handle"} = async ({ event, resolve }) => {
 \tconst response = await resolve(event);
@@ -27,7 +28,7 @@ const existing = (cwd: string, ts: boolean): void => {
 `);
   write(cwd, `src/routes/+layout.${ext}`, `${ts ? "import type { LayoutLoad } from './$types';\n\nexport const load: LayoutLoad" : "/** @type {import('./$types').LayoutLoad} */\nexport const load"} = async ({ data }) => ({ ...data, theme: 'dark' });
 `);
-  write(cwd, 'src/routes/[[lang=locale]]/merged/+page.svelte', `<script${ts ? ' lang="ts"' : ''}>
+  write(cwd, `src/routes${translated ? '' : '/[[lang=locale]]'}/merged/+page.svelte`, `<script${ts ? ' lang="ts"' : ''}>
 ${ts ? "\timport type { PageProps } from './$types';\n\n\tlet { data }: PageProps = $props();" : "\t/** @type {import('./$types').PageProps} */\n\tlet { data } = $props();"}
 </script>
 
@@ -39,16 +40,21 @@ export const params = defineParams({
 \tslug: (param) => (/^[a-z-]+$/.test(param) ? param : undefined),
 });
 `);
+  write(cwd, `src/hooks.${ext}`, `${ts ? "import type { Transport } from '@sveltejs/kit/hooks';\n\nexport const transport: Transport" : "/** @type {import('@sveltejs/kit/hooks').Transport} */\nexport const transport"} = {};
+`);
 };
 
 const OPTIONS = {
   locales: 'en,cs',
   format: 'curly' as const,
-  routing: 'prefix' as const,
+  routing: 'prefix' as 'prefix' | 'translated',
   typegen: true,
   extensions: ['typed-access', 'html', 'stores'] as ExtensionId[],
   demo: true,
 };
+
+/** Each kind but `existing` is a second run, the first one stopped before its dependencies. */
+const rerun = (type: string): boolean => type !== 'existing';
 
 /** What the install and the build add, which no run of the add-on writes. */
 const GENERATED = ['node_modules', '.svelte-kit', 'build', 'i18n-schema.d.ts'];
@@ -61,14 +67,17 @@ const { test, testCases } = setupTest({ [id]: addon }, {
     { type: 'existing', options: { [id]: OPTIONS } },
     // A first run that stopped before its dependencies: the run `setupTest` makes then goes over its files.
     { type: 'rerun', options: { [id]: OPTIONS } },
+    { type: 'translated', options: { [id]: { ...OPTIONS, routing: 'translated' } } },
   ],
   filter: ({ variant }) => variant.startsWith('kit'),
   browser: true,
   preAdd: async ({ addonTestCase, cwd }) => {
-    existing(cwd, addonTestCase.variant === 'kit-ts');
-    if (addonTestCase.kind.type !== 'rerun') return;
+    vendored(cwd);
+    const { type, options } = addonTestCase.kind;
+    existing(cwd, addonTestCase.variant === 'kit-ts', type === 'translated');
+    if (!rerun(type)) return;
     const pkg = read(cwd, 'package.json');
-    await add({ cwd, addons: { [id]: addon }, options: { [id]: OPTIONS } });
+    await add({ cwd, addons: { [id]: addon }, options });
     firstRun.set(cwd, tree(cwd, GENERATED));
     write(cwd, 'package.json', pkg);
   },
@@ -79,13 +88,19 @@ test.concurrent.for(testCases)('merges into the project\'s own files, $kind.type
   const ext = testCase.variant === 'kit-ts' ? 'ts' : 'js';
 
   // A second run duplicates nothing: no import, `sequence`, plugin, `.gitignore` line, `use()` or `#lib` entry.
-  if (testCase.kind.type === 'rerun') expect(tree(cwd, GENERATED)).toEqual(firstRun.get(cwd));
+  const translated = testCase.kind.type === 'translated';
+  if (rerun(testCase.kind.type)) expect(tree(cwd, GENERATED)).toEqual(firstRun.get(cwd));
 
   const hooks = read(cwd, `src/hooks.server.${ext}`);
-  expect(hooks).toContain('const handleAll = sequence(handle, i18nHandle);');
+  expect(hooks).toContain(`const handleAll = sequence(handle, ${translated ? 'localize, ' : ''}i18nHandle);`);
   const params = read(cwd, `src/params.${ext}`);
   expect(params).toContain('slug: (param) =>');
-  expect(params).toContain('locale: (param) =>');
+  if (!translated) expect(params).toContain('locale: (param) =>');
+  // The universal hooks keep their own exports beside the i18n `reroute`.
+  const universal = read(cwd, `src/hooks.${ext}`);
+  expect(universal).toContain('export const transport');
+  if (translated) expect(universal).toContain("export { reroute } from '#lib/i18n.js';");
+  else expect(universal).not.toContain('reroute');
 
   await script(cwd, 'build');
   await script(cwd, 'check');

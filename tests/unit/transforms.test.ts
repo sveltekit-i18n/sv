@@ -2,7 +2,7 @@ import { defineDemoPage } from '@sveltejs/sv-utils';
 import { describe, expect, test } from 'vitest';
 
 import { prefixDemoLink } from '../../src/demo.js';
-import { hooksServer } from '../../src/hooks.js';
+import { hooksServer, hooksUniversal } from '../../src/hooks.js';
 import { newLayout, rootLayout } from '../../src/layout.js';
 import { layoutLoad } from '../../src/load.js';
 import type { Routing } from '../../src/options.js';
@@ -17,8 +17,8 @@ const apply = (make: (skip: (reason: string) => void) => (content: string) => st
   return { output, skipped };
 };
 
-const hooks = (content: string, routing: Routing = 'cookie', language: 'ts' | 'js' = 'ts') => (
-  apply((skip) => hooksServer({ language, routing, skip }), content)
+const hooks = (content: string, routing: Routing = 'cookie', language: 'ts' | 'js' = 'ts', basePath?: string) => (
+  apply((skip) => hooksServer({ language, routing, skip, basePath }), content)
 );
 
 describe('hooks.server', () => {
@@ -128,6 +128,81 @@ export const handle = sequence(a);
     `);
   });
 
+  test('adds the redirect to a page\'s own pathname for translated routing', () => {
+    expect(hooks('', 'translated').output).toMatchInlineSnapshot(`
+      "import { redirect } from '@sveltejs/kit';
+      import { sequence } from '@sveltejs/kit/hooks';
+      import { handle as i18nHandle, delocalize, localizePath } from '#lib/i18n.js';
+
+      // Once a page has a pathname of its own in \`pathnames\` of \`#lib/i18n\`, sends
+      // the one the catch-all gave it there. A remote function's request carries the
+      // URL of the page that called it, so it is left alone.
+      const localize: import('@sveltejs/kit/hooks').Handle = ({ event, resolve }) => {
+      	const { path, locale } = delocalize(event.url);
+
+      	if (locale !== undefined && !event.isRemoteRequest) {
+      		// SvelteKit drops a trailing slash before \`handle\` only from a pathname a
+      		// route matches, so the target leaves it out, as the default
+      		// \`trailingSlash: 'never'\` serves it, and the pathnames compare without it.
+      		const href = localizePath(path.replace(/^([^?#]+?)\\/(?=[?#]|$)/, '$1'), locale);
+
+      		if (href.replace(/[?#].*/s, '').replace(/\\/$/, '') !== event.url.pathname.replace(/\\/$/, '')) {
+      			redirect(308, href);
+      		}
+      	}
+
+      	return resolve(event);
+      };
+
+      export const handle = sequence(localize, i18nHandle);"
+    `);
+    expect(hooks('', 'translated', 'js', '/app').output).toMatchInlineSnapshot(`
+      "import { redirect } from '@sveltejs/kit';
+      import { sequence } from '@sveltejs/kit/hooks';
+
+      import {
+      	handle as i18nHandle,
+      	delocalize,
+      	localizePath,
+      	config as i18nConfig
+      } from '#lib/i18n.js';
+
+      // Once a page has a pathname of its own in \`pathnames\` of \`#lib/i18n\`, sends
+      // the one the catch-all gave it there. A remote function's request carries the
+      // URL of the page that called it, so it is left alone.
+      /** @type {import('@sveltejs/kit/hooks').Handle} */
+      const localize = ({ event, resolve }) => {
+      	const { path, locale } = delocalize(event.url);
+
+      	if (locale !== undefined && !event.isRemoteRequest) {
+      		// SvelteKit drops a trailing slash before \`handle\` only from a pathname a
+      		// route matches, so the target leaves it out, as the default
+      		// \`trailingSlash: 'never'\` serves it, and the pathnames compare without it.
+      		const href = localizePath(path.replace(/^([^?#]+?)\\/(?=[?#]|$)/, '$1'), locale);
+
+      		const pathname = event.url.pathname.slice(i18nConfig.basePath.length) || '/';
+
+      		if (href.replace(/[?#].*/s, '').replace(/\\/$/, '') !== pathname.replace(/\\/$/, '')) {
+      			redirect(308, \`\${i18nConfig.basePath}\${href}\`);
+      		}
+      	}
+
+      	return resolve(event);
+      };
+
+      export const handle = sequence(localize, i18nHandle);"
+    `);
+  });
+
+  test('runs the redirect after the app\'s own handle, under a name the module leaves free', () => {
+    const { output } = hooks("import { redirect } from './auth';\n\nexport const handle = async ({ event, resolve }) => resolve(event);\nconst localize = redirect;\n", 'translated');
+    expect(output).toContain("import { redirect as redirect2 } from '@sveltejs/kit';");
+    expect(output).toContain('const localize2: ');
+    expect(output).toContain('redirect2(308, href);');
+    expect(output).toContain('export { handleAll as handle };');
+    expect(output).toContain('const handleAll = sequence(handle, localize2, i18nHandle);');
+  });
+
   test('sequences a re-exported handle under the name the module imports it as already', () => {
     const { output } = hooks(`import { handle as authHandle } from './auth';
 
@@ -218,6 +293,51 @@ export const handle: Handle = async ({ event, resolve }) => resolve(event);
     const skipped: string[] = [];
     const output = hooksServer({ language: 'ts', routing: 'cookie', skip: (reason) => skipped.push(reason) })(content);
     // sv-utils hands an unparsed file back as it was, which writes nothing.
+    expect(output === false || output === content).toBe(true);
+    expect(skipped).toEqual(['it does not parse.']);
+  });
+});
+
+const universal = (content: string) => apply((skip) => hooksUniversal({ skip }), content);
+
+describe('universal hooks', () => {
+  test('re-exports reroute into a module without one, after what it has', () => {
+    expect(universal('').output).toMatchInlineSnapshot(`
+      "// Serves each translated pathname from the route of its canonical one.
+      export { reroute } from '#lib/i18n.js';"
+    `);
+    expect(universal("import { transport as own } from './transport';\n\nexport const transport = own;\n").output).toMatchInlineSnapshot(`
+      "import { transport as own } from './transport';
+
+      export const transport = own;
+
+      // Serves each translated pathname from the route of its canonical one.
+      export { reroute } from '#lib/i18n.js';"
+    `);
+  });
+
+  test('leaves a module that re-exports the i18n reroute as it is', () => {
+    expect(universal("export { reroute } from '$lib/i18n';\n")).toEqual({ output: false, skipped: [] });
+  });
+
+  test('leaves a reroute of the app\'s own alone, saying so', () => {
+    for (const content of [
+      'export const reroute = () => undefined;\n',
+      "export { reroute } from './routes';\n",
+      "export * from './routes';\n",
+    ]) {
+      const { output, skipped } = universal(content);
+      expect(output).toBe(false);
+      expect(skipped).toHaveLength(1);
+      expect(skipped[0]).toContain('`reroute` from `#lib/i18n.js`');
+    }
+    expect(universal("export * from './routes';\n").skipped[0]).toContain('export *');
+  });
+
+  test('leaves a module that does not parse alone, saying so', () => {
+    const skipped: string[] = [];
+    const content = 'export const reroute = ;';
+    const output = hooksUniversal({ skip: (reason) => skipped.push(reason) })(content);
     expect(output === false || output === content).toBe(true);
     expect(skipped).toEqual(['it does not parse.']);
   });

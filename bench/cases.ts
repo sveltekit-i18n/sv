@@ -145,6 +145,15 @@ export const CASES = {
     files: own(`\n${helpers(333)}`),
     wrote: [...common('ts', '/[[lang=locale]]'), ...loads('ts'), ...prefixed('ts')],
   },
+  // `routing: translated` reads the routes and the universal hooks, and adds
+  // the redirect to the same large hooks.
+  translated: {
+    row: 'run(), the same with a second locale under routing: translated, with universal hooks',
+    types: 'typescript',
+    options: { ...DEFAULTS, locales: 'en,cs', routing: 'translated' },
+    files: { ...own(`\n${helpers(333)}`), 'src/hooks.ts': `export const transport = {};\n\n${helpers(333)}` },
+    wrote: [...common('ts', ''), ...loads('ts'), 'src/hooks.ts', 'src/lib/translations/cs/common.json'],
+  },
 } satisfies Record<string, Case>;
 
 export type CaseId = keyof typeof CASES;

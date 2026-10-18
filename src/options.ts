@@ -4,7 +4,7 @@ import { defineAddonOptions } from 'sv';
 import { parseLocales } from './locales.js';
 import { EXTENSIONS, FORMATS, type ExtensionId } from './packages.js';
 
-export type Routing = 'cookie' | 'prefix' | 'custom';
+export type Routing = 'cookie' | 'prefix' | 'translated' | 'custom';
 
 export const options = defineAddonOptions()
   .add('locales', {
@@ -31,6 +31,7 @@ export const options = defineAddonOptions()
     options: [
       { value: 'cookie', label: 'cookie', hint: 'the `lang` cookie, then Accept-Language; URLs stay as they are' },
       { value: 'prefix', label: 'URL prefix', hint: '/about, /cs/about' },
+      { value: 'translated', label: 'translated pathnames', hint: '/about, /cs/o-nas: one route tree' },
       { value: 'custom', label: 'custom', hint: 'your own source, such as a user preference, through event.locals' },
     ],
   })
@@ -75,8 +76,8 @@ export const readOptions = (input: Record<string, unknown>): Settings | string =
   if (!format) return `Unknown format \`${String(input.format)}\`: use ${FORMATS.map(({ id }) => id).join(', ')}.`;
 
   const routing = input.routing;
-  if (routing !== 'cookie' && routing !== 'prefix' && routing !== 'custom') {
-    return `Unknown routing \`${String(routing)}\`: use cookie, prefix or custom.`;
+  if (routing !== 'cookie' && routing !== 'prefix' && routing !== 'translated' && routing !== 'custom') {
+    return `Unknown routing \`${String(routing)}\`: use cookie, prefix, translated or custom.`;
   }
 
   if (typeof input.typegen !== 'boolean') return '`typegen` takes yes or no.';

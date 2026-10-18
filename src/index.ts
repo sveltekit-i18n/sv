@@ -1,3 +1,6 @@
+import { readdirSync } from 'node:fs';
+import { join } from 'node:path';
+
 import {
   color,
   defineDemoPage,
@@ -15,7 +18,7 @@ import { UNPARSED, exportedNames, importNamed } from './ast.js';
 import { readBase } from './base.js';
 import { prefixDemoLink } from './demo.js';
 import { demoPage, extractParams, i18nModule, json, localeModule, messages, paramsModule } from './generate.js';
-import { hooksServer } from './hooks.js';
+import { hooksServer, hooksUniversal } from './hooks.js';
 import { newLayout, rootLayout } from './layout.js';
 import { layoutLoad } from './load.js';
 import { options, readOptions } from './options.js';
@@ -27,6 +30,8 @@ type Language = 'ts' | 'js';
 const DOCS = 'https://sveltekit-i18n.github.io';
 const UPGRADE = 'https://github.com/sveltekit-i18n/lib/blob/master/docs/TROUBLESHOOTING.md#upgrading-from-v2';
 const EXAMPLE = 'https://github.com/sveltekit-i18n/lib/tree/master/examples/locale-router-advanced';
+const TRANSLATED_DOCS = 'https://github.com/sveltekit-i18n/base/blob/master/docs/README.md#translated-pathnames';
+const TRANSLATED_EXAMPLE = 'https://github.com/sveltekit-i18n/lib/tree/master/examples/translated-paths';
 
 /**
  * What `run()` decided, for `nextSteps`, which only sees the options. Reset at
@@ -47,6 +52,45 @@ const extensionOf = (path: string): Language => (path.endsWith('.ts') ? 'ts' : '
 const existing = (cwd: string, base: string, language: Language): string => {
   const other = language === 'ts' ? 'js' : 'ts';
   return [language, other].map((extension) => `${base}.${extension}`).find((path) => fileExists(cwd, path)) ?? `${base}.${language}`;
+};
+
+/**
+ * The module Kit reads at `base`, as it resolves a hooks file: the `index` of
+ * a directory `base`, else `base` under the first of Kit's module extensions
+ * that exists; the project's language when none does.
+ */
+const kitModule = (cwd: string, base: string, language: Language): string => (
+  [`${base}/index.js`, `${base}/index.ts`, `${base}.js`, `${base}.ts`].find((path) => fileExists(cwd, path)) ?? `${base}.${language}`
+);
+
+/** A required parameter named after a locale, or matched by a matcher that is. */
+const LOCALE_PARAM = /^\[(?:(?:lang|language|locale)(?:=[\w-]+)?|[\w-]+=(?:lang|language|locale))\]$/;
+
+/** The directories of `dir`, none when it does not exist. */
+const directories = (cwd: string, dir: string): string[] => {
+  try {
+    return readdirSync(join(cwd, dir), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map(({ name }) => name);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * The top-level routes the catch-all of `pathnames` takes from the app: one
+ * named after a prefixed locale, as the catch-all spells it and Kit matches
+ * it, case and all, an optional parameter, such as a `[[lang]]` tree, and a
+ * required one that reads as a locale, such as `[lang=locale]`, each under a
+ * top-level group too.
+ */
+const takenRoutes = (cwd: string, routes: string, locales: string[]): string[] => {
+  const prefixes = new Set(locales.slice(1));
+  return directories(cwd, routes)
+    .flatMap((name) => (/^\(.*\)$/.test(name) ? directories(cwd, `${routes}/${name}`).map((inner) => `${name}/${inner}`) : [name]))
+    .filter((route) => {
+      const segment = route.split('/').at(-1) ?? '';
+      return prefixes.has(segment) || /^\[\[(?!\.\.\.)/.test(segment) || LOCALE_PARAM.test(segment);
+    })
+    .map((route) => `${routes}/${route}`);
 };
 
 /** The language of a component's `<script>`, which an existing one states whatever the project's language. */
@@ -121,12 +165,29 @@ export default defineAddon({
     if (!base.known && routing === 'prefix') {
       return cancel('`routing: prefix` needs `kit.paths.base` as a string literal: the locale helpers strip it from every path, and they run where `$app/paths` does not exist. Set the base as a literal, or pick another routing.');
     }
+    if (!base.known && routing === 'translated') {
+      return cancel('`routing: translated` needs `kit.paths.base` as a string literal: the core matches the pathnames without it, so `basePath` must name it. Set the base as a literal, or pick another routing.');
+    }
     const basePath = base.known && base.value ? base.value : undefined;
 
     const i18nPath = existing(cwd, `${directory.lib}/i18n`, language);
     const i18nContent = loadFile(cwd, i18nPath);
     if (i18nContent.trim() && !i18nContent.includes('defineI18n')) {
       return cancel(`\`${i18nPath}\` exists already and does not call \`defineI18n\`. Move it out of the way, or wire it as ${DOCS} shows.`);
+    }
+    if (routing === 'translated' && i18nContent.trim()) {
+      // What the universal hooks, the redirect and the demo page import from it.
+      const needed = ['reroute', 'delocalize', 'localizePath', ...(basePath ? ['config'] : [])];
+      let names: string[] | undefined;
+      try {
+        names = exportedNames(parse.script(i18nContent).ast);
+      } catch {
+        return cancel(`\`${i18nPath}\` exists already and does not parse. Move it out of the way for \`routing: translated\`.`);
+      }
+      const missing = names && needed.filter((name) => !names.includes(name));
+      if (missing?.length) {
+        return cancel(`\`${i18nPath}\` exists already and does not export ${missing.map((name) => `\`${name}\``).join(', ')}. Move it out of the way for \`routing: translated\`, or pass \`pathnames\` to \`defineI18n\` as ${TRANSLATED_DOCS} shows.`);
+      }
     }
 
     const localePath = existing(cwd, `${directory.lib}/locale`, language);
@@ -152,6 +213,11 @@ export default defineAddon({
     for (const name of OTHER_I18N) {
       if (dependencyVersion(name) !== undefined) {
         report.notes.push(`The project depends on ${color.addon(name)} too. Two i18n libraries translate the same app twice: remove the one you leave.`);
+      }
+    }
+    if (routing === 'translated') {
+      for (const route of takenRoutes(cwd, directory.kitRoutes, locales)) {
+        report.notes.push(`${color.route(route)} takes pathnames the catch-all of \`pathnames\` in ${color.path(i18nPath)} gives every other page: move its pages to the routes they translate, with no locale or \`[lang]\` segment.`);
       }
     }
     if (!base.known) {
@@ -181,7 +247,20 @@ export default defineAddon({
 
     // The wiring: `handle`, both layout loads and `use()`.
     const hooksPath = existing(cwd, `${directory.src}/hooks.server`, language);
-    sv.file(hooksPath, hooksServer({ language: extensionOf(hooksPath), routing, skip: skipper(hooksPath), stub: (name) => { report.stub = name; } }));
+    const skipHooks = skipper(hooksPath);
+    sv.file(hooksPath, hooksServer({
+      language: extensionOf(hooksPath),
+      routing,
+      basePath,
+      skip: routing === 'translated'
+        ? (reason) => skipHooks(`${reason} Run the redirect of *One page, one pathname per locale* before it, or the pathname the catch-all gave a translated page answers 404: ${color.website(TRANSLATED_DOCS)}`)
+        : skipHooks,
+      stub: (name) => { report.stub = name; },
+    }));
+    if (routing === 'translated') {
+      const universalPath = kitModule(cwd, `${directory.src}/hooks`, language);
+      sv.file(universalPath, hooksUniversal({ skip: skipper(universalPath) }));
+    }
 
     for (const server of [true, false]) {
       const path = existing(cwd, `${directory.kitRoutes}/${server ? '+layout.server' : '+layout'}`, language);
@@ -270,6 +349,16 @@ export default defineAddon({
       if (language === 'ts') {
         steps.push('On Node, build on 22.18 or newer (23.6 on Node 23): Kit\'s build imports `src/params.ts` with the runtime itself, and Node strips types from those versions on.');
       }
+    }
+    if (routing === 'translated') {
+      steps.push(
+        `Give each page its pathname per locale in \`pathnames\` of ${color.path(report.i18n)}: one route tree serves them all, with no \`[lang]\` segment.`,
+        `Link to a page in a locale with \`localizePath(path, locale)\` from ${color.path('#lib/i18n')}, through \`resolve()\` from \`$app/paths\` without its leading slash, cast to \`Path\`${settings.demo ? ', as the demo\'s `href` does' : ''}.`,
+      );
+      if (settings.locales.length > 1) {
+        steps.push(`List the translated pathnames of the prerendered pages no link reaches in \`prerender.entries\`: \`/${settings.locales[1]}\` for a prerendered home page. \`hreflang\` alternates: ${color.website(TRANSLATED_DOCS)}`);
+      }
+      steps.push(`An app with translated pathnames: ${color.website(TRANSLATED_EXAMPLE)}`);
     }
     if (routing === 'custom') {
       steps.push(report.stub

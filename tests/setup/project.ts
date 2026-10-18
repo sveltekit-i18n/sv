@@ -85,3 +85,28 @@ export const serve = async (
     void exited.then(() => reject(new Error(`vite preview exited in ${cwd}\n${output}`)));
   });
 };
+
+const vendor = path.resolve(import.meta.dirname, '../../vendor');
+
+/**
+ * Copies the packages this repository vendors into the project, where the
+ * ranges the add-on writes point, and resolves the core to the vendored one
+ * in the workspace every case installs in: its exact pin in sveltekit-i18n,
+ * a project's own range on it and an extension's peer on it, which no
+ * `overrides` entry reaches. A hook, since the add-on would read a dependency
+ * of the workspace root as the project's own.
+ */
+export const vendored = (cwd: string): void => {
+  fs.cpSync(vendor, path.join(cwd, 'vendor'), { recursive: true });
+  fs.writeFileSync(path.join(path.dirname(cwd), '.pnpmfile.cjs'), `const core = ${JSON.stringify(`file:${path.join(vendor, 'sveltekit-i18n-base-3.4.0.tgz')}`)};
+const name = '@sveltekit-i18n/base';
+module.exports = { hooks: { readPackage(pkg) {
+  for (const field of ['dependencies', 'devDependencies']) if (pkg[field]?.[name]) pkg[field][name] = core;
+  if (pkg.peerDependencies?.[name]) {
+    delete pkg.peerDependencies[name];
+    pkg.dependencies = { ...pkg.dependencies, [name]: core };
+  }
+  return pkg;
+} } };
+`);
+};
