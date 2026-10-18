@@ -9,11 +9,14 @@ export const UNPARSED = 'it does not parse.';
 /** `#lib/i18n`, with or without an extension, and `$lib/i18n` on an older app. */
 const I18N_MODULE = /^[#$]lib\/i18n(?:\.[jt]s)?$/;
 
+/** Whether `source` names `$lib/i18n`. */
+export const isI18nModule = (source: string): boolean => I18N_MODULE.test(source);
+
 /** Whether the module already imports or re-exports anything from `$lib/i18n`. */
 export const reachesI18n = (ast: Program): boolean => ast.body.some((node) => (
   (node.type === 'ImportDeclaration' || node.type === 'ExportNamedDeclaration' || node.type === 'ExportAllDeclaration')
   && typeof node.source?.value === 'string'
-  && I18N_MODULE.test(node.source.value)
+  && isI18nModule(node.source.value)
 ));
 
 /**

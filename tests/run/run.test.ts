@@ -66,11 +66,30 @@ describe('cancels before any write', () => {
     expect(read(cwd, 'vite.config.ts')).toContain('process.env.BASE_PATH');
     const [reason] = await cancels(cwd, { routing: 'prefix' });
     expect(reason).toContain('`kit.paths.base` as a string literal');
+    const [translated] = await cancels(cwd, { routing: 'translated' });
+    expect(translated).toContain('`routing: translated` needs `kit.paths.base` as a string literal');
   });
 
   test('an i18n module of another setup', async () => {
     const [reason] = await cancels(project('i18n', (dir) => edit(dir, 'src/lib/i18n.ts', () => 'export const t = (key: string) => key;\n')));
     expect(reason).toContain('src/lib/i18n.ts');
+  });
+
+  test('routing: translated beside an i18n module short of what the generated files import', async () => {
+    const i18n = "import { defineI18n } from 'sveltekit-i18n/kit';\n\nexport const { handle, load, use, get } = defineI18n({});\n";
+    const [reason] = await cancels(project('i18n-short', (dir) => edit(dir, 'src/lib/i18n.ts', () => i18n)), { routing: 'translated' });
+    expect(reason).toContain('`reroute`, `delocalize`, `localizePath`');
+    expect(reason).toContain('#translated-pathnames');
+
+    const based = project('i18n-short-base', (dir) => {
+      edit(dir, 'src/lib/i18n.ts', () => i18n.replace('get }', 'get, reroute, delocalize, localizePath }'));
+      edit(dir, 'vite.config.ts', (content) => content.replace('adapter: adapter()', "adapter: adapter(),\n\t\t\tpaths: { base: '/app' }"));
+    });
+    const [config] = await cancels(based, { routing: 'translated' });
+    expect(config).toContain('does not export `config`');
+
+    const [broken] = await cancels(project('i18n-unparsed', (dir) => edit(dir, 'src/lib/i18n.ts', () => 'export const = defineI18n;\n')), { routing: 'translated' });
+    expect(broken).toContain('does not parse');
   });
 
   test('routing: prefix beside a locale module of another setup', async () => {
@@ -154,6 +173,69 @@ describe('leaves a file alone, and says so', () => {
     const steps = nextSteps(custom).join('\n');
     expect(steps).not.toContain('stub');
     expect(steps).toContain('fills `event.locals.lang`');
+  });
+
+  test('translated routing re-exports reroute from the module Kit reads, and leaves one of the app\'s own alone', async () => {
+    const translated = { ...DEFAULTS, locales: 'en,cs', routing: 'translated' };
+    const index = project('universal-index', (dir) => edit(dir, 'src/hooks/index.ts', () => 'export const transport = {};\n'));
+    expect(await run(index, translated)).toBe('success');
+    expect(read(index, 'src/hooks/index.ts')).toContain("export { reroute } from '#lib/i18n.js';");
+    expect(fs.existsSync(path.join(index, 'src/hooks.ts'))).toBe(false);
+
+    const javascript = project('universal-js', (dir) => edit(dir, 'src/hooks.js', () => 'export const transport = {};\n'));
+    expect(await run(javascript, translated)).toBe('success');
+    expect(read(javascript, 'src/hooks.js')).toContain("export { reroute } from '#lib/i18n.js';");
+    expect(fs.existsSync(path.join(javascript, 'src/hooks.ts'))).toBe(false);
+
+    const own = 'export const reroute = () => undefined;\n';
+    const rerouted = project('universal-own', (dir) => edit(dir, 'src/hooks.ts', () => own));
+    expect(await run(rerouted, translated)).toBe('success');
+    expect(read(rerouted, 'src/hooks.ts')).toBe(own);
+    expect(nextSteps(translated).join('\n')).toContain('a `reroute` of its own');
+  });
+
+  test('translated routing names the routes its catch-all takes from the app', async () => {
+    const translated = { ...DEFAULTS, locales: 'en,cs', routing: 'translated' };
+    const cwd = project('translated-taken', (dir) => {
+      edit(dir, 'src/routes/cs/+page.svelte', () => '<h1>cs</h1>\n');
+      edit(dir, 'src/routes/CS/+page.svelte', () => '<h1>CS</h1>\n');
+      edit(dir, 'src/routes/(app)/[[lang]]/+page.svelte', () => '<h1>lang</h1>\n');
+      edit(dir, 'src/routes/[lang=locale]/about/+page.svelte', () => '<h1>about</h1>\n');
+      edit(dir, 'src/routes/(docs)/[lang=supported-locale]/guide/+page.svelte', () => '<h1>guide</h1>\n');
+      edit(dir, 'src/routes/(shop)/[current-lang=locale]/cart/+page.svelte', () => '<h1>cart</h1>\n');
+      edit(dir, 'src/routes/[lang-code]/+page.svelte', () => '<h1>code</h1>\n');
+      edit(dir, 'src/routes/en/+page.svelte', () => '<h1>en</h1>\n');
+      edit(dir, 'src/routes/[slug]/+page.svelte', () => '<h1>slug</h1>\n');
+      edit(dir, 'src/routes/[...rest]/+page.svelte', () => '<h1>404</h1>\n');
+    });
+    expect(await run(cwd, translated)).toBe('success');
+    const steps = nextSteps(translated).join('\n');
+    expect(steps).toContain('src/routes/cs');
+    expect(steps).toContain('src/routes/(app)/[[lang]]');
+    expect(steps).toContain('src/routes/[lang=locale]');
+    expect(steps).toContain('src/routes/(docs)/[lang=supported-locale]');
+    expect(steps).toContain('src/routes/(shop)/[current-lang=locale]');
+    expect(steps).not.toContain('src/routes/[lang-code]');
+    // The catch-all's prefix matches as it is spelled, so `/CS` stays the default locale's.
+    expect(steps).not.toContain('src/routes/CS');
+    expect(steps).not.toContain('src/routes/en');
+    expect(steps).not.toContain('src/routes/[slug]');
+    expect(steps).not.toContain('src/routes/[...rest]');
+  });
+
+  test('translated routing asks for the redirect where it left hooks.server alone, and lists a prerendered pathname with a second locale only', async () => {
+    const translated = { ...DEFAULTS, locales: 'en,cs', routing: 'translated' };
+    const cwd = project('translated-skipped', (dir) => edit(dir, 'src/hooks.server.ts', () => 'const handle = async ({ event, resolve }) => resolve(event);\nexport { handle };\n'));
+    expect(await run(cwd, translated)).toBe('success');
+    const steps = nextSteps(translated).join('\n');
+    expect(steps).toContain('Run the redirect of *One page, one pathname per locale* before it');
+    expect(steps).toContain('`/cs` for a prerendered home page');
+
+    const single = { ...translated, locales: 'en' };
+    expect(await run(project('translated-single'), single)).toBe('success');
+    const once = nextSteps(single).join('\n');
+    expect(once).not.toContain('prerender.entries');
+    expect(once).not.toContain('Run the redirect');
   });
 
   test('prefix routing links through resolve(), and needs a Node that strips types on Node only', () => {

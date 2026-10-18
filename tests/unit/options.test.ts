@@ -24,6 +24,7 @@ describe('options', () => {
     expect(readOptions({ ...defaults, locales: '' })).toContain('at least one locale');
     expect(readOptions({ ...defaults, format: 'gettext' })).toContain('Unknown format');
     expect(readOptions({ ...defaults, routing: 'header' })).toContain('Unknown routing');
+    expect(readOptions({ ...defaults, routing: 'translated' })).toMatchObject({ routing: 'translated' });
     expect(readOptions({ ...defaults, typegen: 'yes' })).toContain('`typegen`');
     expect(readOptions({ ...defaults, demo: undefined })).toContain('`demo`');
     expect(readOptions({ ...defaults, extensions: 'stores' })).toContain('takes a list');

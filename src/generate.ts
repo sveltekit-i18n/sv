@@ -26,6 +26,36 @@ export const extractParams = (settings: Settings): string => {
 /** A locale to name in a comment's example path. */
 const example = (locales: string[]): string => locales[1] ?? 'de';
 
+/** A locale as an object key: bare where it can be. */
+const key = (locale: string): string => (/^[A-Za-z_$][\w$]*$/.test(locale) ? locale : quote(locale));
+
+/** An entry of the `pathnames` table: the default locale's pathname as it is, every other locale's under its own prefix. */
+const entry = (locales: string[], pathname: string): string => `${quote(pathname)}: { ${locales
+  .map((locale, index) => `${key(locale)}: ${quote(index ? `/${locale}${pathname}` : pathname)}`)
+  .join(', ')} },`;
+
+/** `text` as line comments of at most `width` columns. */
+const comment = (text: string, width = 78): string => text.split(' ').reduce<string[]>((lines, word) => {
+  const last = lines.at(-1);
+  if (last !== undefined && `${last} ${word}`.length <= width) return [...lines.slice(0, -1), `${last} ${word}`];
+  return [...lines, `// ${word}`];
+}, []).join('\n');
+
+/** The `pathnames` option: the demo's entry, to translate, and a catch-all that gives every other pathname a locale. */
+const pathnames = ({ locales, demo }: Settings): string => {
+  const [first, ...others] = locales;
+  const rest = others.length === 1
+    ? `in \`${first}\`, and under \`/${others[0]}\` in \`${others[0]}\``
+    : others.length ? `in \`${first}\`, and under \`/<locale>\` in every other locale` : '';
+  const sample = others.length
+    ? `{ ${key(first)}: '/about', ${key(others[0])}: '/${others[0]}/${others[0] === 'cs' ? 'o-nas' : '…'}' }`
+    : `{ ${key(first)}: '/…' }`;
+  return `${comment(`Each page's pathname per locale. A page whose segments are translated takes an entry of its own, such as \`'/about': ${sample}\`${demo ? ", and the demo's is there to translate" : ''}: the redirect in \`hooks.server\` then sends the pathname the catch-all gave it to the new one. The catch-all serves every other page at its own pathname${rest ? ` ${rest}` : ''}.`)}
+pathnames: translatePathnames({
+${tab([...(demo ? [entry(locales, '/demo/sveltekit-i18n')] : []), entry(locales, '/[...rest]')].join('\n'))}
+}),`;
+};
+
 const preferredLocale = ({ routing, locales }: Settings): string => {
   if (routing === 'prefix') {
     return `// The locale is in the path: \`/about\` is the default locale's, \`/${example(locales)}/about\`
@@ -49,7 +79,7 @@ export const i18nModule = (settings: Settings, language: Language, basePath: str
 
   const imports = [
     ...(ts && !format.parser ? [`import type { Config } from ${quote(format.from)};`] : []),
-    `import { defineI18n } from ${quote(format.kit)};`,
+    `import { defineI18n${routing === 'translated' ? ', translatePathnames' : ''} } from ${quote(format.kit)};`,
     ...(format.parser ? [`import parser${ts ? ', { type Config }' : ''} from ${quote(format.from)};`] : []),
     ...extensions.map((extension) => `import ${extension.importName} from ${quote(extension.package)};`),
     ...(routing === 'prefix' ? ['', "import { localeOf } from '#lib/locale.js';"] : []),
@@ -73,6 +103,16 @@ export const i18nModule = (settings: Settings, language: Language, basePath: str
     ? `{ ...config, extensions: [${extensions.map(({ expression }) => expression).join(', ')}] }`
     : 'config';
 
+  const wiring = routing === 'translated'
+    ? `// \`reroute\` goes in \`src/hooks\`, the universal hooks; \`delocalize\` and
+// \`localizePath\` give a page's canonical path and its pathname in a locale.
+export const { handle, load, use, get, reroute, delocalize, localizePath } = defineI18n(${input}, {
+${tab(pathnames(settings))}
+});`
+    : `export const { handle, load, use, get } = defineI18n(${input}, {
+${tab(preferredLocale(settings))}
+});`;
+
   return `${imports.join('\n')}
 
 // Where the core's logs and every report go. Replace it to route them all
@@ -84,9 +124,7 @@ ${ts ? '' : `/** @satisfies {import(${quote(format.from)}).Config} */\n`}export 
 ${tab(config.join('\n'))}
 }${ts ? ' as const satisfies Config' : ''};
 
-export const { handle, load, use, get } = defineI18n(${input}, {
-${tab(preferredLocale(settings))}
-});
+${wiring}
 `;
 };
 
@@ -174,11 +212,12 @@ export const demoPage = (settings: Settings, language: Language): string => {
   const stores = extensions.some(({ demo }) => demo === 'stores');
   const docs = rich(settings) !== undefined;
 
+  const routed = routing === 'prefix' || routing === 'translated';
   const imports = [
-    ...(routing === 'prefix' ? ["import { resolve } from '$app/paths';", "import { page } from '$app/state';"] : ["import { resolve } from '$app/paths';"]),
-    ...(routing === 'prefix' && ts ? ["import type { Path } from '$app/types';"] : []),
+    ...(routed ? ["import { resolve } from '$app/paths';", "import { page } from '$app/state';"] : ["import { resolve } from '$app/paths';"]),
+    ...(routed && ts ? ["import type { Path } from '$app/types';"] : []),
     '',
-    "import { get } from '#lib/i18n.js';",
+    routing === 'translated' ? "import { delocalize, get, localizePath } from '#lib/i18n.js';" : "import { get } from '#lib/i18n.js';",
     ...(routing === 'prefix' ? ["import { LOCALES, localeOf, pathOf, routeOf } from '#lib/locale.js';"] : []),
   ];
 
@@ -186,13 +225,26 @@ export const demoPage = (settings: Settings, language: Language): string => {
   // Only what the page reads: a linter rejects an unused binding.
   const members = ['t', ...(routing === 'prefix' ? [] : ['locale', 'locales']), ...(docs ? ['instance'] : [])];
   const read = stores ? `const { ${members.join(', ')} } = get();` : 'const i18n = get();';
+  const each = stores ? '$locales' : 'i18n.locales';
+  const active = stores ? '$locale' : 'i18n.locale';
+  const path = (expression: string): string => (ts ? `${expression} as Path` : `/** @type {import('$app/types').Path} */ (${expression})`);
 
   let script: string;
   let switcher: string;
   let home: string;
 
-  if (routing === 'prefix') {
-    const path = (expression: string): string => (ts ? `${expression} as Path` : `/** @type {import('$app/types').Path} */ (${expression})`);
+  if (routing === 'translated') {
+    script = `${read}
+
+// A translated pathname is no route ID, so it goes to \`resolve()\` without its
+// leading slash, which reads it as a pathname; its type admits only the app's
+// own pathnames, hence the cast.
+${ts ? 'const pathname = (path: string) =>' : '/** @param {string} path */\nconst pathname = (path) =>'} ${path("path.replace(/^\\/+/, '')")};`;
+    switcher = `{#each ${each} as target (target)}
+\t<a href={resolve(pathname(localizePath(delocalize(page.url).path, target)))} hreflang={target} aria-current={target === ${active} ? 'page' : undefined}>{target}</a>
+{/each}`;
+    home = `resolve(pathname(localizePath('/', ${active})))`;
+  } else if (routing === 'prefix') {
     script = `${read}
 
 const current = $derived(localeOf(page.url.pathname));
@@ -218,8 +270,6 @@ ${ts ? 'const choose = (target: string) => {' : '/** @param {string} target */\n
     script = `${read}
 
 ${persist}`;
-    const each = stores ? '$locales' : 'i18n.locales';
-    const active = stores ? '$locale' : 'i18n.locale';
     switcher = `{#each ${each} as target (target)}
 \t<button onclick={() => choose(target)} aria-pressed={target === ${active}}>{target}</button>
 {/each}`;

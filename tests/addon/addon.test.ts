@@ -17,7 +17,7 @@ const expectPage = playwrightExpect.configure({ timeout: 15_000 });
 type Case = {
   locales: string[];
   format?: 'curly' | 'icu' | 'mf2' | 'i18next' | 'fluent';
-  routing?: 'cookie' | 'prefix' | 'custom';
+  routing?: 'cookie' | 'prefix' | 'translated' | 'custom';
   typegen?: boolean;
   extensions?: ('typed-access' | 'html' | 'markdown' | 'stores')[];
   /** `kit.paths.base`, set before the add-on runs. */
@@ -30,6 +30,8 @@ const CASES: Record<string, Case> = {
   cookie: { locales: ['en', 'cs'] },
   prefix: { locales: ['en', 'cs'], routing: 'prefix' },
   'prefix-base': { locales: ['en', 'cs'], routing: 'prefix', base: '/app' },
+  translated: { locales: ['en', 'cs'], routing: 'translated' },
+  'translated-base': { locales: ['en', 'cs'], routing: 'translated', base: '/app', format: 'icu', extensions: ['stores'] },
   custom: { locales: ['en', 'cs'], routing: 'custom' },
   stores: { locales: ['en', 'cs'], typegen: false, extensions: ['stores'] },
   extensions: { locales: ['en', 'cs'], extensions: ['typed-access', 'html', 'stores'] },
@@ -51,6 +53,10 @@ const { test, testCases } = setupTest({ [id]: addon }, {
   browser: true,
   preAdd: ({ addonTestCase, cwd }) => {
     vendored(cwd);
+    // An option an app adds to `strict`, which the generated code has to pass too.
+    for (const name of ['tsconfig.json', 'jsconfig.json'].filter((name) => fs.existsSync(path.join(cwd, name)))) {
+      write(cwd, name, read(cwd, name).replace('"strict": true', '"strict": true,\n\t\t"noUncheckedIndexedAccess": true'));
+    }
     const { base } = CASES[addonTestCase.kind.type];
     if (!base) return;
     const file = path.join(cwd, 'vite.config.ts');
@@ -160,6 +166,15 @@ test.concurrent.for(testCases)('sveltekit-i18n $kind.type $variant', async (test
   if (probed) addReportProbe(cwd, ts, settings, marked);
   if (type === 'defaults' && ts) addTypeProbe(cwd);
 
+  // The demo's own Czech pathname, as a user translates it: the redirect sends the catch-all's there.
+  const translated = routing === 'translated' ? `/${locales[1]}/ukazka/sveltekit-i18n` : undefined;
+  if (translated) {
+    expect(read(cwd, `src/hooks.${ts ? 'ts' : 'js'}`)).toContain("export { reroute } from '#lib/i18n.js';");
+    const i18n = `src/lib/i18n.${ts ? 'ts' : 'js'}`;
+    write(cwd, i18n, read(cwd, i18n).replace(`${locales[1]}: '/${locales[1]}/demo/sveltekit-i18n'`, `${locales[1]}: '${translated}'`));
+    expect(read(cwd, i18n)).toContain(translated);
+  }
+
   const warnings: string[] = [];
   page.on('console', (message) => {
     if (message.type() === 'warning') warnings.push(message.text());
@@ -203,9 +218,18 @@ test.concurrent.for(testCases)('sveltekit-i18n $kind.type $variant', async (test
     await page.goto(at('/demo/sveltekit-i18n'));
   }
 
-  if (routing === 'prefix') {
+  if (routing === 'prefix' || routing === 'translated') {
     // The prefixed locale renders on the server, and the switcher's links move between the addresses.
+    const own = translated ?? `/${second}/demo/sveltekit-i18n`;
     const response = await page.goto(at(`/${second}/demo/sveltekit-i18n`));
+    expect(response!.url()).toBe(at(own));
+    if (translated) {
+      expect(response!.request().redirectedFrom()?.url()).toBe(at(`/${second}/demo/sveltekit-i18n`));
+      // A trailing slash is dropped, and the search kept, in one redirect.
+      const searched = await page.request.get(at(`/${second}/demo/sveltekit-i18n/?x=1`), { maxRedirects: 0 });
+      expect(searched.status()).toBe(308);
+      expect(new URL(searched.headers().location ?? '', origin).href).toBe(at(`${translated}?x=1`));
+    }
     const html = await response!.text();
     expect(html).toContain(`lang="${second}"`);
     expect(visible(html)).toContain(greeting(second));
@@ -216,8 +240,9 @@ test.concurrent.for(testCases)('sveltekit-i18n $kind.type $variant', async (test
     expect(await heading(page)).toBe(greeting(first));
     await expectPage(page.locator('html')).toHaveAttribute('lang', first);
 
+    if (translated) await expectPage(page.getByRole('link', { name: second, exact: true })).toHaveAttribute('hreflang', second);
     await page.getByRole('link', { name: second, exact: true }).click();
-    await expectPage(page).toHaveURL(at(`/${second}/demo/sveltekit-i18n`));
+    await expectPage(page).toHaveURL(at(own));
     await expectPage.poll(() => heading(page)).toBe(greeting(second));
     return;
   }

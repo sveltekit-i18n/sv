@@ -60,7 +60,7 @@ Issues for this repo live in the `lib` tracker.
 | `src/ast.ts` | what those transforms share: finding an export, unexporting it, `UNPARSED` |
 | `src/base.ts` | reads `kit.paths.base` off the Kit config |
 | `src/locales.ts` | parses and canonicalizes the `locales` option |
-| `tests/unit/` | the transforms and the options, in process |
+| `tests/unit/` | the transforms, the options and the generated demo page, in process |
 | `tests/run/` | `add()` over a project that cancels or skips a file, without an install |
 | `tests/cli/` | the `sv` command line over the built package |
 | `tests/addon/` | the matrix: each option set on `kit-js` and `kit-ts`, installed, built, checked and served |
@@ -158,12 +158,14 @@ flagged for review. `publish.yml` writes `BENCH.md` into the release commit.
 
 - **It measures what a user waits on: one `npx sv add` per project.** The
   rows are the bytes of the bundle and of the tarball `sv` downloads, the
-  import of the bundle with `sv` loaded already, and `run()` on four projects:
+  import of the bundle with `sv` loaded already, and `run()` on five projects:
   TypeScript with the default options, JavaScript with every option, a
   project with its own hooks, layout loads and params under `routing: prefix`,
-  and the same with about 2,000 lines in each of those scripts, where a
-  transform that grows faster than the file stands out. There are no counts
-  and no heap: nothing here repeats, and no process outlives its run.
+  the same with about 2,000 lines in each of those scripts, where a
+  transform that grows faster than the file stands out, and that one with a
+  second locale under `routing: translated`, with universal hooks of the same
+  size. There are no counts and no heap: nothing here repeats, and no process
+  outlives its run.
 - **A time is a first call, in a process of its own.** `sv` imports and runs
   the add-on once per process, so a warmed call times what no user meets.
   `run()` is timed inside `add()`, which wraps it, so `sv`'s own work around
