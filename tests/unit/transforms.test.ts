@@ -232,6 +232,18 @@ export const handle = async ({ event, resolve }) => resolve(event);
     expect(output).toContain('const handleAll = sequence2(handle, i18nHandle);');
   });
 
+  test('makes a type-only import of what it calls a value one', () => {
+    const { output } = hooks(`import { type sequence } from '@sveltejs/kit/hooks';
+import type { redirect, RequestEvent } from '@sveltejs/kit';
+
+export const handle = async ({ event, resolve }: { event: RequestEvent; resolve: (event: RequestEvent) => Response }) => resolve(event);
+`, 'translated');
+    expect(output).toContain("import { sequence } from '@sveltejs/kit/hooks';");
+    expect(output).toContain("import { redirect, type RequestEvent } from '@sveltejs/kit';");
+    expect(output).toContain('redirect(308, href);');
+    expect(output).toContain('const handleAll = sequence(handle, localize, i18nHandle);');
+  });
+
   test('finds the handle past a destructuring export', () => {
     const { output } = hooks(`export const { a, b } = { a: 1, b: 2 };
 export const handle = async ({ event, resolve }) => resolve(event);

@@ -56,6 +56,13 @@ const nameOf = (node: AstTypes.Identifier | AstTypes.Literal): string | undefine
   node.type === 'Identifier' ? node.name : typeof node.value === 'string' ? node.value : undefined
 );
 
+/** The `importKind` of an import declaration or specifier, which the estree types leave out: `type` for a type-only one. */
+const kindOf = (node: AstTypes.Node): string | undefined => (node as { importKind?: string }).importKind;
+
+const setKind = (node: AstTypes.Node, kind: 'type' | 'value'): void => {
+  (node as { importKind?: string }).importKind = kind;
+};
+
 export const findExport = (ast: Program, name: string): ExportShape => {
   for (const node of ast.body) {
     if (node.type !== 'ExportNamedDeclaration') continue;
@@ -137,10 +144,24 @@ export const freeName = (js: Js, roots: Parameters<Js['identifiers']['freeName']
   }
 };
 
-/** The local name a module imports `name` from `from` under, adding the import if it has none. */
+/**
+ * The local name a module imports `name` from `from` under, adding the import
+ * if it has none. A type-only import of it becomes a value one, as the code
+ * that calls it needs: `js.imports.find` hands it back as it is, and
+ * `js.imports.addNamed` adds no second import of a name.
+ */
 export const importNamed = (ast: Program, js: Js, name: string, from: string, preferred = name): string => {
-  const existing = js.imports.find(ast, { name, from });
-  if (existing.alias) return existing.alias;
+  for (const node of ast.body) {
+    if (node.type !== 'ImportDeclaration' || node.source.value !== from) continue;
+    const specifier = node.specifiers.find((candidate) => candidate.type === 'ImportSpecifier' && nameOf(candidate.imported) === name);
+    if (!specifier) continue;
+    if (kindOf(node) === 'type') {
+      setKind(node, 'value');
+      for (const other of node.specifiers) if (other !== specifier) setKind(other, 'type');
+    }
+    if (kindOf(specifier) === 'type') setKind(specifier, 'value');
+    return specifier.local.name;
+  }
   const local = freeName(js, [ast], preferred);
   js.imports.addNamed(ast, { imports: { [name]: local }, from });
   return local;
