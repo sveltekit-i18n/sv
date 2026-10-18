@@ -175,6 +175,43 @@ describe('leaves a file alone, and says so', () => {
     expect(steps).toContain('fills `event.locals.lang`');
   });
 
+  test('merges into the hooks and params Kit reads: a directory\'s index first, then JavaScript', async () => {
+    const hooks = 'export const handle = async ({ event, resolve }) => resolve(event);\n';
+    const params = "import { defineParams } from '@sveltejs/kit/params';\n\nexport const params = defineParams({});\n";
+    const prefix = { ...DEFAULTS, locales: 'en,cs', routing: 'prefix' };
+    const index = project('kit-index', (dir) => {
+      for (const file of ['src/hooks.server/index.ts', 'src/hooks.server.ts']) edit(dir, file, () => hooks);
+      for (const file of ['src/params/index.ts', 'src/params.ts']) edit(dir, file, () => params);
+    });
+    expect(await run(index, prefix)).toBe('success');
+    expect(read(index, 'src/hooks.server/index.ts')).toContain('sequence(handle, i18nHandle)');
+    expect(read(index, 'src/params/index.ts')).toContain('locale: (param) =>');
+    expect(read(index, 'src/hooks.server.ts')).toBe(hooks);
+    expect(read(index, 'src/params.ts')).toBe(params);
+    expect(nextSteps(prefix).join('\n')).toContain('imports src/params/index.ts and src/lib/locale.ts with the runtime itself');
+
+    const js = project('kit-js', (dir) => {
+      for (const file of ['src/hooks.server.js', 'src/hooks.server.ts']) edit(dir, file, () => hooks);
+      for (const file of ['src/params.js', 'src/params.ts']) edit(dir, file, () => params);
+    });
+    expect(await run(js, prefix)).toBe('success');
+    expect(read(js, 'src/hooks.server.js')).toContain('sequence(handle, i18nHandle)');
+    expect(read(js, 'src/params.js')).toContain('locale: (param) =>');
+    expect(read(js, 'src/hooks.server.ts')).toBe(hooks);
+    expect(read(js, 'src/params.ts')).toBe(params);
+    // A JavaScript `params` still imports the TypeScript locale helpers.
+    expect(nextSteps(prefix).join('\n')).toContain('imports src/lib/locale.ts with the runtime itself');
+
+    // With JavaScript locale helpers too, Node strips nothing.
+    const plain = project('kit-plain-js', (dir) => {
+      edit(dir, 'src/params.js', () => params);
+      edit(dir, 'src/lib/locale.js', () => 'export const localeOf = () => {};\nexport const isPrefixed = () => {};\nexport const LOCALES = [];\nexport const pathOf = () => {};\nexport const routeOf = () => {};\n');
+    });
+    expect(await run(plain, prefix)).toBe('success');
+    expect(read(plain, 'src/params.js')).toContain("from '#lib/locale.js'");
+    expect(nextSteps(prefix).join('\n')).not.toContain('strips types');
+  });
+
   test('translated routing re-exports reroute from the module Kit reads, and leaves one of the app\'s own alone', async () => {
     const translated = { ...DEFAULTS, locales: 'en,cs', routing: 'translated' };
     const index = project('universal-index', (dir) => edit(dir, 'src/hooks/index.ts', () => 'export const transport = {};\n'));
@@ -238,10 +275,12 @@ describe('leaves a file alone, and says so', () => {
     expect(once).not.toContain('Run the redirect');
   });
 
-  test('prefix routing links through resolve(), and needs a Node that strips types on Node only', () => {
-    const steps = nextSteps({ ...DEFAULTS, routing: 'prefix' }).join('\n');
+  test('prefix routing links through resolve(), and needs a Node that strips types on Node only', async () => {
+    const prefix = { ...DEFAULTS, routing: 'prefix' };
+    expect(await run(project('prefix-steps'), prefix)).toBe('success');
+    const steps = nextSteps(prefix).join('\n');
     expect(steps).toContain('resolve(pathOf(');
-    expect(steps).toContain('On Node, ');
+    expect(steps).toContain('On Node, build on 22.18 or newer (23.6 on Node 23): Kit\'s build imports src/params.ts and src/lib/locale.ts with');
   });
 
   test('a Vite config under a name sv does not edit', async () => {

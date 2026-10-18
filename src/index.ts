@@ -44,6 +44,8 @@ const report = {
   i18n: '',
   /** The `handle` stub that fills `event.locals.lang`, once it is written. */
   stub: '',
+  /** The TypeScript modules of the `locale` matcher, which Kit's build imports with Node itself. */
+  stripped: [] as string[],
 };
 
 const extensionOf = (path: string): Language => (path.endsWith('.ts') ? 'ts' : 'js');
@@ -55,9 +57,9 @@ const existing = (cwd: string, base: string, language: Language): string => {
 };
 
 /**
- * The module Kit reads at `base`, as it resolves a hooks file: the `index` of
- * a directory `base`, else `base` under the first of Kit's module extensions
- * that exists; the project's language when none does.
+ * The module Kit reads at `base`, as it resolves the hooks and `params`: the
+ * `index` of a directory `base`, else `base` under the first of Kit's module
+ * extensions that exists; the project's language when none does.
  */
 const kitModule = (cwd: string, base: string, language: Language): string => (
   [`${base}/index.js`, `${base}/index.ts`, `${base}.js`, `${base}.ts`].find((path) => fileExists(cwd, path)) ?? `${base}.${language}`
@@ -143,6 +145,7 @@ export default defineAddon({
     report.notes = [];
     report.i18n = '';
     report.stub = '';
+    report.stripped = [];
 
     // Every check that can cancel runs before the first write: `cancel()`
     // undoes nothing `sv.file()` wrote.
@@ -232,7 +235,8 @@ export default defineAddon({
 
     if (routing === 'prefix') {
       sv.file(localePath, create(() => localeModule(locales, extensionOf(localePath), basePath)));
-      const paramsPath = existing(cwd, `${directory.src}/params`, language);
+      const paramsPath = kitModule(cwd, `${directory.src}/params`, language);
+      report.stripped = [paramsPath, localePath].filter((path) => path.endsWith('.ts'));
       const from = `#lib/locale.${extensionOf(localePath)}`;
       sv.file(paramsPath, (content) => (content.trim() ? addMatcher({ from, skip: skipper(paramsPath) })(content) : paramsModule(from)));
     }
@@ -246,7 +250,7 @@ export default defineAddon({
     }));
 
     // The wiring: `handle`, both layout loads and `use()`.
-    const hooksPath = existing(cwd, `${directory.src}/hooks.server`, language);
+    const hooksPath = kitModule(cwd, `${directory.src}/hooks.server`, language);
     const skipHooks = skipper(hooksPath);
     sv.file(hooksPath, hooksServer({
       language: extensionOf(hooksPath),
@@ -328,7 +332,7 @@ export default defineAddon({
     if (typegen) sv.devDependency('@sveltekit-i18n/typegen', range('@sveltekit-i18n/typegen'));
   },
 
-  nextSteps: ({ options: input, language, directory }) => {
+  nextSteps: ({ options: input, directory }) => {
     const settings = readOptions(input);
     if (typeof settings === 'string') return [];
     const { format, routing } = settings;
@@ -346,8 +350,8 @@ export default defineAddon({
         `Move your routes under ${color.route(`${directory.kitRoutes}/[[lang=locale]]/`)}, so each page answers in every locale, and link with \`resolve(pathOf())\`: \`pathOf\` from ${color.path('#lib/locale')}, \`resolve\` from \`$app/paths\`.`,
         `A prerendered site lists every locale's pages in \`prerender.entries\`, built from \`LOCALES\`: ${color.website(EXAMPLE)}`,
       );
-      if (language === 'ts') {
-        steps.push('On Node, build on 22.18 or newer (23.6 on Node 23): Kit\'s build imports `src/params.ts` with the runtime itself, and Node strips types from those versions on.');
+      if (report.stripped.length) {
+        steps.push(`On Node, build on 22.18 or newer (23.6 on Node 23): Kit's build imports ${report.stripped.map((path) => color.path(path)).join(' and ')} with the runtime itself, and Node strips types from those versions on.`);
       }
     }
     if (routing === 'translated') {

@@ -37,7 +37,8 @@ npx sv add @sveltekit-i18n="locales:en,cs+format:icu+routing:prefix+typegen:yes+
 
 The paths below are the default ones of a TypeScript project. A JavaScript
 project gets `.js` files, typed with JSDoc. The add-on changes a file that
-exists already under either extension.
+exists already under either extension, or the `index` of a directory of that
+name that Kit reads instead, such as `src/hooks.server/index.ts`.
 
 - `package.json`: the packages of the format, the extensions you chose and,
   with `typegen`, `@sveltekit-i18n/typegen` as a dev dependency. It also adds
@@ -60,11 +61,10 @@ exists already under either extension.
   catch-all that serves every page at its own pathname in the first locale
   and under `/<locale>` in the others, which you then translate page by page;
   `src/lib/i18n.ts` exports `reroute`, `delocalize` and `localizePath` beside
-  the rest. `src/hooks.ts` (or the `src/hooks/index.ts` Kit reads instead)
-  re-exports `reroute`, and `src/hooks.server.ts` gets a handle, run before
-  the i18n one, that redirects the pathname the catch-all gives a page to the
-  one you gave it. The demo page stays at `/demo/sveltekit-i18n` and links
-  each locale's pathname.
+  the rest. `src/hooks.ts` re-exports `reroute`, and `src/hooks.server.ts`
+  gets a handle, run before the i18n one, that redirects the pathname the
+  catch-all gives a page to the one you gave it. The demo page stays at
+  `/demo/sveltekit-i18n` and links each locale's pathname.
 - With `routing: custom`: `lang` in `App.Locals` in `src/app.d.ts`.
 - With `typegen`: the plugin in `vite.config.ts`, and `src/i18n-schema.d.ts` in
   `.gitignore`.
