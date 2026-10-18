@@ -3,7 +3,7 @@ import { add } from 'sv';
 
 import addon from '../../src/index.js';
 import type { ExtensionId } from '../../src/packages.js';
-import { read, script, serve, tree, write } from '../setup/project.js';
+import { read, script, serve, tree, vendored, write } from '../setup/project.js';
 import { setupTest } from '../setup/suite.js';
 
 const id = addon.id;
@@ -65,6 +65,7 @@ const { test, testCases } = setupTest({ [id]: addon }, {
   filter: ({ variant }) => variant.startsWith('kit'),
   browser: true,
   preAdd: async ({ addonTestCase, cwd }) => {
+    vendored(cwd);
     existing(cwd, addonTestCase.variant === 'kit-ts');
     if (addonTestCase.kind.type !== 'rerun') return;
     const pkg = read(cwd, 'package.json');

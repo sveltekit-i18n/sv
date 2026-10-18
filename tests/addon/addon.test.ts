@@ -6,7 +6,7 @@ import { expect as playwrightExpect, type Page } from '@playwright/test';
 import own from '../../package.json' with { type: 'json' };
 import addon from '../../src/index.js';
 import { EXTENSIONS, FORMATS } from '../../src/packages.js';
-import { read, script, serve, write } from '../setup/project.js';
+import { read, script, serve, vendored, write } from '../setup/project.js';
 import { setupTest } from '../setup/suite.js';
 
 const id = addon.id;
@@ -50,7 +50,7 @@ const { test, testCases } = setupTest({ [id]: addon }, {
   filter: ({ variant }) => variant.startsWith('kit'),
   browser: true,
   preAdd: ({ addonTestCase, cwd }) => {
-    fs.cpSync(path.resolve(import.meta.dirname, '../../vendor'), path.join(cwd, 'vendor'), { recursive: true });
+    vendored(cwd);
     const { base } = CASES[addonTestCase.kind.type];
     if (!base) return;
     const file = path.join(cwd, 'vite.config.ts');
