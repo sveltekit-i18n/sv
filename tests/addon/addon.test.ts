@@ -16,7 +16,7 @@ const expectPage = playwrightExpect.configure({ timeout: 15_000 });
 
 type Case = {
   locales: string[];
-  format?: 'curly' | 'icu' | 'mf2' | 'i18next';
+  format?: 'curly' | 'icu' | 'mf2' | 'i18next' | 'fluent';
   routing?: 'cookie' | 'prefix' | 'custom';
   typegen?: boolean;
   extensions?: ('typed-access' | 'html' | 'markdown' | 'stores')[];
@@ -37,6 +37,7 @@ const CASES: Record<string, Case> = {
   markdown: { locales: ['en', 'cs'], format: 'icu', extensions: ['markdown', 'stores'] },
   mf2: { locales: ['en', 'cs'], format: 'mf2' },
   i18next: { locales: ['en', 'cs'], format: 'i18next' },
+  fluent: { locales: ['en', 'cs'], format: 'fluent', extensions: ['markdown'] },
   rtl: { locales: ['en', 'pt-BR', 'ar'] },
 };
 
@@ -61,7 +62,7 @@ const { test, testCases } = setupTest({ [id]: addon }, {
 /** The greeting the demo renders in `locale`, as `messages()` writes it. */
 const greeting = (locale: string): string => `${locale.split('-')[0] === 'en' ? '' : `[${locale}] `}Hello, World!`;
 
-/** Text as a reader sees it: MessageFormat 2 isolates a placeholder with bidi marks. */
+/** Text as a reader sees it: MessageFormat 2 and Fluent isolate a placeholder with bidi marks. */
 const visible = (text: string | null): string => (text ?? '').replace(/[\u2066-\u2069]/g, '');
 
 const heading = async (page: Page): Promise<string> => visible(await page.locator('h1').textContent());

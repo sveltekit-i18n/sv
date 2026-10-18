@@ -61,6 +61,7 @@
     "@sveltekit-i18n/extension-markdown": "file:vendor/sveltekit-i18n-extension-markdown-3.0.0-next.0.tgz",
     "@sveltekit-i18n/extension-stores": "^3.2.1",
     "@sveltekit-i18n/extension-typed-access": "^3.0.1",
+    "@sveltekit-i18n/parser-fluent": "^3.0.0-next.0",
     "@sveltekit-i18n/parser-i18next": "^3.0.5",
     "@sveltekit-i18n/parser-icu": "^3.1.1",
     "@sveltekit-i18n/parser-mf2": "^3.1.1",

@@ -9,7 +9,7 @@ type Installed = keyof typeof devDependencies & (`@sveltekit-i18n/${string}` | '
  */
 export const range = (name: Installed): string => devDependencies[name];
 
-export type FormatId = 'curly' | 'icu' | 'mf2' | 'i18next';
+export type FormatId = 'curly' | 'icu' | 'mf2' | 'i18next' | 'fluent';
 
 export type Format = {
   id: FormatId;
@@ -62,6 +62,15 @@ export const FORMATS: Format[] = [
     from: '@sveltekit-i18n/parser-i18next',
     parser: true,
     greeting: (text) => `${text}, {{name}}!`,
+  },
+  {
+    id: 'fluent',
+    label: 'Fluent',
+    packages: ['@sveltekit-i18n/base', '@sveltekit-i18n/parser-fluent'],
+    kit: '@sveltekit-i18n/base/kit',
+    from: '@sveltekit-i18n/parser-fluent',
+    parser: true,
+    greeting: (text) => `${text}, { $name }!`,
   },
 ];
 
